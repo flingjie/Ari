@@ -1,0 +1,143 @@
+// API 客户端：fetch 封装，统一解析错误（含 409 的 current_revision）。
+
+import type { Operation, Snapshot, Stage } from "../lib/types";
+
+const BASE = "/api/workspaces";
+
+export interface WorkspacePayload {
+  id: string;
+  revision: number;
+  snapshot: Snapshot;
+}
+
+export interface PatchResult {
+  revision: number;
+  snapshot: Snapshot;
+}
+
+export interface ExportResult {
+  revision: number;
+  format: string;
+  content: string;
+}
+
+export interface MessageResult {
+  reply: string;
+  proposal_id: string | null;
+  revision: number;
+}
+
+export interface ResolveResult {
+  revision: number;
+  snapshot: Snapshot;
+  status: string;
+}
+
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(status: number, detail: unknown) {
+    super(typeof detail === "string" ? detail : `请求失败 (${status})`);
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+  if (!res.ok) {
+    let detail: unknown = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail ?? body;
+    } catch {
+      // 非 JSON 错误体，保留 statusText。
+    }
+    throw new ApiError(res.status, detail);
+  }
+  return (await res.json()) as T;
+}
+
+export const api = {
+  create(template?: string): Promise<WorkspacePayload> {
+    return request<WorkspacePayload>("/", {
+      method: "POST",
+      body: JSON.stringify({ template: template ?? null }),
+    });
+  },
+
+  get(id: string): Promise<WorkspacePayload> {
+    return request<WorkspacePayload>(`/${id}`);
+  },
+
+  patch(
+    id: string,
+    requestId: string,
+    baseRevision: number,
+    operations: Operation[],
+  ): Promise<PatchResult> {
+    return request<PatchResult>(`/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        request_id: requestId,
+        base_revision: baseRevision,
+        operations,
+      }),
+    });
+  },
+
+  export(
+    id: string,
+    revision: number,
+    perspectiveId: string,
+    format: "outline" | "table",
+  ): Promise<ExportResult> {
+    const params = new URLSearchParams({
+      revision: String(revision),
+      perspective_id: perspectiveId,
+      format,
+    });
+    return request<ExportResult>(`/${id}/export?${params.toString()}`);
+  },
+
+  sendMessage(
+    id: string,
+    requestId: string,
+    stage: Stage,
+    question: string,
+    baseRevision: number,
+  ): Promise<MessageResult> {
+    return request<MessageResult>(`/${id}/messages`, {
+      method: "POST",
+      body: JSON.stringify({
+        request_id: requestId,
+        stage,
+        question,
+        base_revision: baseRevision,
+      }),
+    });
+  },
+
+  resolveProposal(
+    id: string,
+    proposalId: string,
+    requestId: string,
+    baseRevision: number,
+    action: "accept" | "edit" | "ignore",
+    operations?: Operation[],
+  ): Promise<ResolveResult> {
+    return request<ResolveResult>(`/${id}/proposals/${proposalId}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({
+        request_id: requestId,
+        base_revision: baseRevision,
+        action,
+        operations: operations ?? null,
+      }),
+    });
+  },
+};

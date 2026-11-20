@@ -1,0 +1,31 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local config (copy ari.example.yaml to ari.yaml)
+backend/ari.yaml
+
+# SQLite database
+*.db
+*.db-wal
+*.db-shm
+
+# Node
+node_modules/
+frontend/dist/
+
+# Local data / scratch
+var/
+tmp/
+.DS_Store
+
+# TypeScript build info
+*.tsbuildinfo
