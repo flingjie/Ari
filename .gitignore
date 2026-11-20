@@ -29,3 +29,6 @@ tmp/
 
 # TypeScript build info
 *.tsbuildinfo
+
+# Runtime logs
+*.log
