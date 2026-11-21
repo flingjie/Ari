@@ -1,6 +1,12 @@
 // API 客户端：fetch 封装，统一解析错误（含 409 的 current_revision）。
 
-import type { GroupedView, Operation, Snapshot, Stage } from "../lib/types";
+import type {
+  GroupedView,
+  Operation,
+  Snapshot,
+  Stage,
+  VisualizationView,
+} from "../lib/types";
 
 const BASE = "/api/workspaces";
 
@@ -35,6 +41,11 @@ export interface ExportResult {
 export interface GroupedViewResult {
   revision: number;
   view: GroupedView;
+}
+
+export interface VisualizationResult {
+  revision: number;
+  view: VisualizationView;
 }
 
 export interface MessageResult {
@@ -148,6 +159,18 @@ export const api = {
       perspective_id: perspectiveId,
     });
     return request<GroupedViewResult>(`/${id}/grouped-view?${params.toString()}`);
+  },
+
+  visualization(
+    id: string,
+    revision: number,
+    perspectiveId: string,
+  ): Promise<VisualizationResult> {
+    const params = new URLSearchParams({
+      revision: String(revision),
+      perspective_id: perspectiveId,
+    });
+    return request<VisualizationResult>(`/${id}/visualization?${params.toString()}`);
   },
 
   sendMessage(

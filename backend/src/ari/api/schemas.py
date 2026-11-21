@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from ..domain.operations import Operation
 from ..domain.grouping import GroupedView
+from ..domain.visualizations import VisualizationView
 from ..models import WorkspaceSnapshot
 
 Stage = Literal["purpose", "piece", "perspective", "pillar", "presentation"]
@@ -112,3 +113,13 @@ class GroupedViewQuery(BaseModel):
 class GroupedViewResponse(BaseModel):
     revision: int
     view: GroupedView
+
+
+class VisualizationQuery(BaseModel):
+    revision: int
+    perspective_id: str
+
+
+class VisualizationResponse(BaseModel):
+    revision: int
+    view: VisualizationView

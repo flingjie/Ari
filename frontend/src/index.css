@@ -581,3 +581,356 @@ a:focus-visible {
   font-size: 14px;
   color: #777;
 }
+
+/* —— 图形选择器（可视化 PR1） —— */
+
+.chart-selector {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.chart-entry {
+  background: #fffef9;
+  border: 1px solid #d2d7cb;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.chart-entry[data-selected="true"] {
+  border-color: #28503a;
+  box-shadow: 0 0 0 2px #28503a inset;
+}
+
+.chart-entry__main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.chart-entry__main:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.chart-badge {
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.chart-badge--ok {
+  background: #e9efe4;
+  color: #28503a;
+}
+
+.chart-badge--missing {
+  background: #f4ecdc;
+  color: #8a6a2f;
+}
+
+.chart-entry__missing {
+  margin-top: 8px;
+  font-size: 13px;
+  border-top: 1px solid #e4e7dd;
+  padding-top: 6px;
+}
+
+.chart-entry__missing ul {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+
+/* —— 流程图 / 循环图（可视化 PR2） —— */
+
+.flow {
+  margin: 12px 0;
+  overflow-x: auto;
+}
+
+.flow-canvas {
+  position: relative;
+}
+
+.flow-links {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.flow-edge {
+  fill: none;
+  stroke: #9db3a5;
+  stroke-width: 2;
+}
+
+.flow-edge--feedback {
+  stroke: #ca984a;
+  stroke-dasharray: 5 3;
+}
+
+.flow-arrow {
+  fill: #9db3a5;
+}
+
+.flow-edge-label {
+  font-size: 12px;
+  fill: #5a6a5e;
+}
+
+.flow-node {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fffef9;
+  border: 1px solid #d2d7cb;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.flow-node__order {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #28503a;
+  color: white;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* —— 关系编辑器（通用） —— */
+
+.editor h4 {
+  margin: 14px 0 6px;
+  font-size: 15px;
+}
+
+.editor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+.editor-row input[type="text"],
+.editor-row input:not([type]) {
+  flex: 1 1 140px;
+  min-width: 120px;
+}
+
+.editor-row__order {
+  width: 22px;
+  text-align: center;
+  color: #5a6a5e;
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.editor-error {
+  color: #a33;
+  font-size: 14px;
+}
+
+/* —— 维恩图 / 矩阵图（可视化 PR3） —— */
+
+.venn {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.venn-column {
+  background: #fffef9;
+  border: 1px solid #d2d7cb;
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.venn-column h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.matrix {
+  margin: 12px 0;
+}
+
+.matrix-scroll {
+  overflow-x: auto;
+}
+
+.matrix-grid {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+
+.matrix-grid th,
+.matrix-grid td {
+  border: 1px solid #d2d7cb;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+  min-width: 120px;
+}
+
+.matrix-grid th {
+  background: #eef4ea;
+}
+
+.matrix-cell-piece {
+  margin: 3px 0;
+}
+
+.matrix-unplaced {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed #d2d7cb;
+  border-radius: 10px;
+}
+
+.matrix-unplaced .graph-card {
+  display: inline-block;
+  margin: 4px;
+}
+
+/* —— 材料引用选择器 + 编辑器补充 —— */
+
+.material-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.material-picker__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #dde2d7;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 14px;
+}
+
+.material-picker__empty {
+  color: #777;
+  font-size: 14px;
+}
+
+.editor-block {
+  margin: 8px 0;
+}
+
+.editor-row__label {
+  flex: 1 1 160px;
+  min-width: 140px;
+  font-size: 14px;
+}
+
+/* —— 金字塔图 / 逻辑树（可视化 PR4） —— */
+
+.pyramid {
+  margin: 12px 0;
+}
+
+.pyramid-layer {
+  border: 1px solid #d2d7cb;
+  border-radius: 14px;
+  padding: 14px;
+  margin: 10px 0;
+}
+
+.pyramid-layer h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.pyramid-point {
+  margin: 10px 0;
+}
+
+.pyramid-point__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pyramid-missing {
+  font-size: 12px;
+  color: #a5792c;
+  border: 1px solid #d8b46a;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.pyramid-point__evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.pyramid-point__evidence .graph-card {
+  margin: 0;
+}
+
+.tree {
+  margin: 12px 0;
+}
+
+.tree-node {
+  margin: 6px 0;
+}
+
+.tree-node__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tree-node__toggle {
+  width: 24px;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.tree-node__materials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 6px 24px;
+}
+
+.tree-node__materials .graph-card {
+  margin: 0;
+}
+
+.editor-details {
+  margin: 6px 0;
+}
+
+.editor-details summary {
+  cursor: pointer;
+  font-size: 14px;
+  color: #5a6a5e;
+}

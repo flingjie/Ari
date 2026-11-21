@@ -1,15 +1,33 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "../store/workspace";
 import { useGroupedView } from "../lib/useGroupedView";
-import { newId } from "../lib/types";
+import {
+  newId,
+  type Flow,
+  type LogicTree,
+  type MatrixStructure,
+  type Pyramid,
+  type SetsStructure,
+} from "../lib/types";
 import { PillarBoard, type CardOp } from "../components/PillarBoard";
+import { FlowEditor } from "../components/FlowEditor";
+import { VennEditor } from "../components/VennEditor";
+import { MatrixEditor } from "../components/MatrixEditor";
+import { PyramidEditor } from "../components/PyramidEditor";
+import { LogicTreeEditor } from "../components/LogicTreeEditor";
 
 export default function PillarPage() {
   const { snapshot, mutate, load, workspaceId, revision } = useWorkspace();
   const [pending, setPending] = useState<Record<string, CardOp>>({});
   const [failed, setFailed] = useState<Record<string, CardOp>>({});
   const activeRef = useRef<string | null>(null);
+  const [searchParams] = useSearchParams();
+  const [showFlowEditor, setShowFlowEditor] = useState(false);
+  const [showVennEditor, setShowVennEditor] = useState(false);
+  const [showMatrixEditor, setShowMatrixEditor] = useState(false);
+  const [showPyramidEditor, setShowPyramidEditor] = useState(false);
+  const [showLogicTreeEditor, setShowLogicTreeEditor] = useState(false);
 
   const activeId = snapshot?.active_perspective_id ?? null;
 
@@ -18,6 +36,15 @@ export default function PillarPage() {
     setPending({});
     setFailed({});
   }, [activeId]);
+
+  useEffect(() => {
+    const editor = searchParams.get("editor");
+    if (editor === "flow") setShowFlowEditor(true);
+    if (editor === "sets") setShowVennEditor(true);
+    if (editor === "matrix") setShowMatrixEditor(true);
+    if (editor === "pyramid") setShowPyramidEditor(true);
+    if (editor === "logic_tree") setShowLogicTreeEditor(true);
+  }, [searchParams]);
 
   const { view, status, error } = useGroupedView(
     workspaceId,
@@ -41,6 +68,22 @@ export default function PillarPage() {
 
   // 收窄后的当前视角 ID（闭包内固定为 string）。
   const currentActiveId: string = activeId;
+
+  const flow = snapshot.visualizations.find(
+    (v): v is Flow => v.type === "flow" && v.perspective_id === currentActiveId,
+  );
+  const sets = snapshot.visualizations.find(
+    (v): v is SetsStructure => v.type === "sets" && v.perspective_id === currentActiveId,
+  );
+  const matrix = snapshot.visualizations.find(
+    (v): v is MatrixStructure => v.type === "matrix" && v.perspective_id === currentActiveId,
+  );
+  const pyramid = snapshot.visualizations.find(
+    (v): v is Pyramid => v.type === "pyramid" && v.perspective_id === currentActiveId,
+  );
+  const logicTree = snapshot.visualizations.find(
+    (v): v is LogicTree => v.type === "logic_tree" && v.perspective_id === currentActiveId,
+  );
 
   // 已确认归属（用于拖到同列 no-op）。
   const confirmedMap: Record<string, string | null> = {};
@@ -137,6 +180,71 @@ export default function PillarPage() {
         failed={failed}
       />
       <button onClick={addPillar}>＋ 新支柱</button>
+
+      <section className="card">
+        <button
+          type="button"
+          onClick={() => setShowFlowEditor((v) => !v)}
+          aria-expanded={showFlowEditor}
+        >
+          {showFlowEditor ? "收起" : "编辑"} 流程 / 循环
+        </button>
+        {showFlowEditor ? (
+          <FlowEditor perspectiveId={currentActiveId} flow={flow ?? null} onSaved={() => {}} />
+        ) : null}
+      </section>
+
+      <section className="card">
+        <button
+          type="button"
+          onClick={() => setShowVennEditor((v) => !v)}
+          aria-expanded={showVennEditor}
+        >
+          {showVennEditor ? "收起" : "编辑"} 维恩集合
+        </button>
+        {showVennEditor ? (
+          <VennEditor perspectiveId={currentActiveId} sets={sets ?? null} onSaved={() => {}} />
+        ) : null}
+      </section>
+
+      <section className="card">
+        <button
+          type="button"
+          onClick={() => setShowMatrixEditor((v) => !v)}
+          aria-expanded={showMatrixEditor}
+        >
+          {showMatrixEditor ? "收起" : "编辑"} 矩阵
+        </button>
+        {showMatrixEditor ? (
+          <MatrixEditor perspectiveId={currentActiveId} matrix={matrix ?? null} onSaved={() => {}} />
+        ) : null}
+      </section>
+
+      <section className="card">
+        <button
+          type="button"
+          onClick={() => setShowPyramidEditor((v) => !v)}
+          aria-expanded={showPyramidEditor}
+        >
+          {showPyramidEditor ? "收起" : "编辑"} 金字塔
+        </button>
+        {showPyramidEditor ? (
+          <PyramidEditor perspectiveId={currentActiveId} pyramid={pyramid ?? null} onSaved={() => {}} />
+        ) : null}
+      </section>
+
+      <section className="card">
+        <button
+          type="button"
+          onClick={() => setShowLogicTreeEditor((v) => !v)}
+          aria-expanded={showLogicTreeEditor}
+        >
+          {showLogicTreeEditor ? "收起" : "编辑"} 逻辑树
+        </button>
+        {showLogicTreeEditor ? (
+          <LogicTreeEditor perspectiveId={currentActiveId} tree={logicTree ?? null} onSaved={() => {}} />
+        ) : null}
+      </section>
     </div>
   );
 }

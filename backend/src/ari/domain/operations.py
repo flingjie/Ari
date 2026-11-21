@@ -14,12 +14,24 @@ from pydantic import BaseModel, Field, model_validator
 
 from ..models import (
     Assignment,
+    Flow,
+    LogicTree,
+    MatrixStructure,
     Perspective,
     Piece,
     PieceKind,
     PieceSide,
     Pillar,
+    Pyramid,
+    SetsStructure,
     WorkspaceSnapshot,
+)
+from .visualizations import (
+    flow_problems,
+    logic_tree_problems,
+    matrix_problems,
+    pyramid_problems,
+    sets_problems,
 )
 
 
@@ -112,6 +124,56 @@ class AssignPiece(BaseModel):
     pillar_id: str | None = None  # None = 待归类
 
 
+class SetFlow(BaseModel):
+    type: Literal["set_flow"] = "set_flow"
+    structure: Flow
+
+
+class RemoveFlow(BaseModel):
+    type: Literal["remove_flow"] = "remove_flow"
+    perspective_id: str
+
+
+class SetSets(BaseModel):
+    type: Literal["set_sets"] = "set_sets"
+    structure: SetsStructure
+
+
+class RemoveSets(BaseModel):
+    type: Literal["remove_sets"] = "remove_sets"
+    perspective_id: str
+
+
+class SetMatrix(BaseModel):
+    type: Literal["set_matrix"] = "set_matrix"
+    structure: MatrixStructure
+
+
+class RemoveMatrix(BaseModel):
+    type: Literal["remove_matrix"] = "remove_matrix"
+    perspective_id: str
+
+
+class SetPyramid(BaseModel):
+    type: Literal["set_pyramid"] = "set_pyramid"
+    structure: Pyramid
+
+
+class RemovePyramid(BaseModel):
+    type: Literal["remove_pyramid"] = "remove_pyramid"
+    perspective_id: str
+
+
+class SetLogicTree(BaseModel):
+    type: Literal["set_logic_tree"] = "set_logic_tree"
+    structure: LogicTree
+
+
+class RemoveLogicTree(BaseModel):
+    type: Literal["remove_logic_tree"] = "remove_logic_tree"
+    perspective_id: str
+
+
 Operation = Annotated[
     (
         SetPurpose
@@ -126,6 +188,16 @@ Operation = Annotated[
         | RenamePillar
         | RemovePillar
         | AssignPiece
+        | SetFlow
+        | RemoveFlow
+        | SetSets
+        | RemoveSets
+        | SetMatrix
+        | RemoveMatrix
+        | SetPyramid
+        | RemovePyramid
+        | SetLogicTree
+        | RemoveLogicTree
     ),
     Field(discriminator="type"),
 ]
@@ -197,6 +269,55 @@ def _auto_layout_sides(children: list[Piece]) -> dict[str, PieceSide]:
     return sides
 
 
+def _upsert_visualization(snapshot: WorkspaceSnapshot, structure) -> None:
+    """按 (type, perspective_id) 替换同类型结构后追加。"""
+    snapshot.visualizations = [
+        v
+        for v in snapshot.visualizations
+        if not (v.type == structure.type and v.perspective_id == structure.perspective_id)
+    ]
+    snapshot.visualizations.append(structure)
+
+
+def _remove_visualization(
+    snapshot: WorkspaceSnapshot, perspective_id: str, viz_type: str
+) -> None:
+    """幂等地删除某视角下某类型结构（不存在则 no-op）。"""
+    snapshot.visualizations = [
+        v
+        for v in snapshot.visualizations
+        if not (v.type == viz_type and v.perspective_id == perspective_id)
+    ]
+
+
+def _clean_visualization_pillar_refs(snapshot: WorkspaceSnapshot, pillar_id: str) -> None:
+    """删除支柱后清理结构中的支柱引用：保留步骤/要点，仅置 None。"""
+    for v in snapshot.visualizations:
+        if isinstance(v, Flow):
+            for s in v.steps:
+                if s.pillar_id == pillar_id:
+                    s.pillar_id = None
+        elif isinstance(v, Pyramid):
+            for pt in v.points:
+                if pt.pillar_id == pillar_id:
+                    pt.pillar_id = None
+
+
+def _clean_visualization_piece_refs(snapshot: WorkspaceSnapshot, doomed: set[str]) -> None:
+    """删除片段后清理结构中的片段引用：证据/成员/坐标/材料一并移除。"""
+    for v in snapshot.visualizations:
+        if isinstance(v, SetsStructure):
+            v.members = [m for m in v.members if m.piece_id not in doomed]
+        elif isinstance(v, MatrixStructure):
+            v.coordinates = [c for c in v.coordinates if c.piece_id not in doomed]
+        elif isinstance(v, Pyramid):
+            for pt in v.points:
+                pt.evidence = [e for e in pt.evidence if e not in doomed]
+        elif isinstance(v, LogicTree):
+            for n in v.nodes:
+                n.materials = [m for m in n.materials if m not in doomed]
+
+
 def apply(snapshot: WorkspaceSnapshot, op: Operation) -> None:
     """就地应用单个操作，校验失败抛 OperationError。"""
     if isinstance(op, SetPurpose):
@@ -234,6 +355,7 @@ def apply(snapshot: WorkspaceSnapshot, op: Operation) -> None:
         doomed = _descendants(snapshot, op.piece_id)
         snapshot.pieces = [p for p in snapshot.pieces if p.id not in doomed]
         snapshot.assignments = [a for a in snapshot.assignments if a.piece_id not in doomed]
+        _clean_visualization_piece_refs(snapshot, doomed)
 
     elif isinstance(op, MovePiece):
         if op.piece_id == snapshot.root_id:
@@ -335,6 +457,7 @@ def apply(snapshot: WorkspaceSnapshot, op: Operation) -> None:
         _require_pillar(snapshot, op.id)
         snapshot.pillars = [p for p in snapshot.pillars if p.id != op.id]
         snapshot.assignments = [a for a in snapshot.assignments if a.pillar_id != op.id]
+        _clean_visualization_pillar_refs(snapshot, op.id)
 
     elif isinstance(op, AssignPiece):
         _require_piece(snapshot, op.piece_id)
@@ -358,6 +481,56 @@ def apply(snapshot: WorkspaceSnapshot, op: Operation) -> None:
                 pillar_id=op.pillar_id,
             )
         )
+
+    elif isinstance(op, SetFlow):
+        _require_perspective(snapshot, op.structure.perspective_id)
+        hard, _ = flow_problems(snapshot, op.structure)
+        if hard:
+            raise OperationError("; ".join(hard))
+        _upsert_visualization(snapshot, op.structure)
+
+    elif isinstance(op, RemoveFlow):
+        _remove_visualization(snapshot, op.perspective_id, "flow")
+
+    elif isinstance(op, SetSets):
+        _require_perspective(snapshot, op.structure.perspective_id)
+        hard, _ = sets_problems(snapshot, op.structure)
+        if hard:
+            raise OperationError("; ".join(hard))
+        _upsert_visualization(snapshot, op.structure)
+
+    elif isinstance(op, RemoveSets):
+        _remove_visualization(snapshot, op.perspective_id, "sets")
+
+    elif isinstance(op, SetMatrix):
+        _require_perspective(snapshot, op.structure.perspective_id)
+        hard, _ = matrix_problems(snapshot, op.structure)
+        if hard:
+            raise OperationError("; ".join(hard))
+        _upsert_visualization(snapshot, op.structure)
+
+    elif isinstance(op, RemoveMatrix):
+        _remove_visualization(snapshot, op.perspective_id, "matrix")
+
+    elif isinstance(op, SetPyramid):
+        _require_perspective(snapshot, op.structure.perspective_id)
+        hard, _ = pyramid_problems(snapshot, op.structure)
+        if hard:
+            raise OperationError("; ".join(hard))
+        _upsert_visualization(snapshot, op.structure)
+
+    elif isinstance(op, RemovePyramid):
+        _remove_visualization(snapshot, op.perspective_id, "pyramid")
+
+    elif isinstance(op, SetLogicTree):
+        _require_perspective(snapshot, op.structure.perspective_id)
+        hard, _ = logic_tree_problems(snapshot, op.structure)
+        if hard:
+            raise OperationError("; ".join(hard))
+        _upsert_visualization(snapshot, op.structure)
+
+    elif isinstance(op, RemoveLogicTree):
+        _remove_visualization(snapshot, op.perspective_id, "logic_tree")
 
     else:  # pragma: no cover - 防御性分支
         raise OperationError(f"未知操作: {op.type}")

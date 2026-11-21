@@ -17,6 +17,7 @@ from ..agents.stage import (
 from ..domain.export import ExportError, render
 from ..domain.grouping import GroupedViewError, build_grouped_view
 from ..domain.operations import Operation, OperationError
+from ..domain.visualizations import VisualizationViewError, build_visualization_view
 from ..domain.proposals import (
     ProposalResolvedError,
     StaleProposalError,
@@ -52,6 +53,8 @@ from .schemas import (
     ProposalSummary,
     ResolveRequest,
     ResolveResponse,
+    VisualizationQuery,
+    VisualizationResponse,
     WorkspaceResponse,
 )
 
@@ -317,3 +320,25 @@ def grouped_view(
             detail={"message": str(exc), "recovery": exc.recovery},
         ) from None
     return GroupedViewResponse(revision=query.revision, view=view)
+
+
+@router.get("/{workspace_id}/visualization", response_model=VisualizationResponse)
+def visualization(
+    workspace_id: str, query: VisualizationQuery = Depends(), conn=Depends(get_conn)
+) -> VisualizationResponse:
+    ws = get_workspace(conn, workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="工作区不存在")
+    if ws["revision"] != query.revision:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "版本已变，请刷新后再预览", "current_revision": ws["revision"]},
+        )
+    try:
+        view = build_visualization_view(ws["snapshot"], query.perspective_id)
+    except VisualizationViewError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": str(exc), "recovery": exc.recovery},
+        ) from None
+    return VisualizationResponse(revision=query.revision, view=view)
