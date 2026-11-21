@@ -86,22 +86,40 @@ export function PillarChartPanel({
   if (pyramid) localExisting.push("pyramid");
   if (logicTree) localExisting.push("logic_tree");
 
-  // 进入 / 切换视角 / revision 变化时拉取推荐。
+  // revision 只在拉取时读取（缓存键 / 跨访问新鲜度），不作为触发依赖：
+  // 停留在本页时 pillar/assign 保存导致 revision 前进，不应重跑 LLM 请求。
+  const revisionRef = useRef(revision);
+  revisionRef.current = revision;
+  const scopeRef = useRef(`${workspaceId}:${perspectiveId}`);
+
+  // 仅在进入 / 切换工作区或视角 / 点击「重新推荐」时拉取推荐。
   useEffect(() => {
-    const cached = recommendCache.get(key);
+    const scope = `${workspaceId}:${perspectiveId}`;
+    const scopeChanged = scopeRef.current !== scope;
+    scopeRef.current = scope;
+    const fetchRevision = revisionRef.current;
+    const fetchKey = cacheKey(workspaceId, perspectiveId, fetchRevision);
+    // 无论是否命中缓存都使旧的在途请求失效，避免其覆盖新 key 的状态。
+    const seq = ++seqRef.current;
+    const cached = recommendCache.get(fetchKey);
     if (cached) {
       setResult(cached);
       setStatus("ready");
       return;
     }
-    const seq = ++seqRef.current;
-    // 已有上一份结果时保持展示（编辑器不卸载，避免丢未保存草稿），仅无结果时显示骨架。
-    if (!result) setStatus("loading");
+    // 切换视角时旧结果不属于新视角，必须清掉；同视角（含重新推荐）保持展示旧结果，
+    // 编辑器不卸载，避免丢未保存草稿。
+    let hasResult = result !== null;
+    if (scopeChanged) {
+      setResult(null);
+      hasResult = false;
+    }
+    setStatus(hasResult ? "ready" : "loading");
     api
-      .recommendChart(workspaceId, revision, perspectiveId)
+      .recommendChart(workspaceId, fetchRevision, perspectiveId)
       .then((r) => {
         if (seqRef.current !== seq) return;
-        recommendCache.set(key, r);
+        recommendCache.set(fetchKey, r);
         setResult(r);
         setStatus("ready");
       })
@@ -109,8 +127,8 @@ export function PillarChartPanel({
         if (seqRef.current !== seq) return;
         setStatus("error");
       });
-    // result 故意不入依赖：它只用于决定是否显示骨架。
-  }, [key, refreshNonce]);
+    // result / revision 故意不入依赖：result 仅用于决定是否显示骨架，revision 不触发重新拉取。
+  }, [workspaceId, perspectiveId, refreshNonce]);
 
   useEffect(
     () => () => {
@@ -132,7 +150,12 @@ export function PillarChartPanel({
 
   const ready = status === "ready" && result !== null;
   const recommended = ready ? result.chart : null;
-  const existingCharts = ready ? result.existing_charts : localExisting;
+  // 以实时快照 props 为准，与（可能已过期的）接口返回取并集。
+  const existingCharts: RecommendChart[] = ready
+    ? ALL_CHARTS.filter(
+        (c) => localExisting.includes(c) || result.existing_charts.includes(c),
+      )
+    : localExisting;
   const reason = ready ? result.reason : "";
 
   const hasConflictShape =
@@ -177,8 +200,7 @@ export function PillarChartPanel({
     clearPerspectiveCache(workspaceId, perspectiveId);
     updatePrefs({ manualChart: null });
     onClearEditorParam?.();
-    setResult(null);
-    setStatus("loading");
+    // 不清 result：重新拉取期间继续展示旧结果，避免编辑器被骨架顶掉。
     setRefreshNonce((n) => n + 1);
   }
 
