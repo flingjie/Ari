@@ -1,4 +1,4 @@
-import type { ChartType } from "./types";
+import type { ChartType, RecommendChart } from "./types";
 
 // 图形选择、折叠与布局偏好按工作区×视角记录在客户端（localStorage），不入快照。
 
@@ -7,6 +7,8 @@ export interface ChartPrefs {
   collapsed: Record<string, boolean>;
   layout: Record<string, string>;
   returnTarget: { chart: ChartType; perspectiveId: string } | null;
+  manualChart: RecommendChart | null;
+  dismissedConflictAtRevision: number | null;
 }
 
 const DEFAULTS: ChartPrefs = {
@@ -14,6 +16,8 @@ const DEFAULTS: ChartPrefs = {
   collapsed: {},
   layout: {},
   returnTarget: null,
+  manualChart: null,
+  dismissedConflictAtRevision: null,
 };
 
 export function chartPrefsKey(workspaceId: string, perspectiveId: string): string {

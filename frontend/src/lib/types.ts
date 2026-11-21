@@ -185,6 +185,20 @@ export type ChartType =
   | "pyramid"
   | "logic_tree";
 
+export type RecommendChart =
+  | "flow"
+  | "venn"
+  | "matrix"
+  | "pyramid"
+  | "logic_tree";
+
+export interface RecommendChartResult {
+  revision: number;
+  chart: RecommendChart;
+  reason: string;
+  existing_charts: RecommendChart[];
+}
+
 export type FillTarget = "perspective" | "pillar";
 
 export interface MissingField {

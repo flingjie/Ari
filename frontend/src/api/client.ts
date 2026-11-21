@@ -3,6 +3,7 @@
 import type {
   GroupedView,
   Operation,
+  RecommendChartResult,
   Snapshot,
   Stage,
   VisualizationView,
@@ -181,6 +182,20 @@ export const api = {
       perspective_id: perspectiveId,
     });
     return request<VisualizationResult>(`/${id}/visualization?${params.toString()}`);
+  },
+
+  recommendChart(
+    id: string,
+    baseRevision: number,
+    perspectiveId: string,
+  ): Promise<RecommendChartResult> {
+    return request<RecommendChartResult>(`/${id}/recommend-chart`, {
+      method: "POST",
+      body: JSON.stringify({
+        base_revision: baseRevision,
+        perspective_id: perspectiveId,
+      }),
+    });
   },
 
   sendMessage(
