@@ -1,3 +1,4 @@
+from ari.agents.recommend_chart import RecommendChartOutput, render_recommend_prompt
 from ari.domain.recommend_chart import (
     RecommendChartError,
     build_recommend_context,
@@ -54,3 +55,16 @@ def test_build_recommend_context_missing_perspective():
         assert False, "expected error"
     except RecommendChartError as exc:
         assert exc.recovery
+
+
+def test_render_recommend_prompt_contains_candidates_and_purpose():
+    ctx = build_recommend_context(tutorial_snapshot(), "v-adoption")
+    text = render_recommend_prompt(ctx)
+    assert "flow" in text and "venn" in text
+    assert ctx["purpose"] in text or "目的" in text
+    assert "JSON" in text or "chart" in text
+
+
+def test_recommend_chart_output_schema_accepts_flow():
+    out = RecommendChartOutput(chart="flow", reason="阶段推进")
+    assert out.chart == "flow"
