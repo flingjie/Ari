@@ -38,7 +38,7 @@ export function ChatPanel({ stage }: { stage: Stage }) {
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      void send();
+      if (!sending && draft.trim()) void send();
     }
   }
 
@@ -162,8 +162,11 @@ export function ChatPanel({ stage }: { stage: Stage }) {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="向阿理提问（Enter 发送，Shift+Enter 换行）"
-          disabled={sending}
+          placeholder={
+            sending
+              ? "阿理思考中，可先写下一条…"
+              : "向阿理提问（Enter 发送，Shift+Enter 换行）"
+          }
         />
         <button
           type="button"

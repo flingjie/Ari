@@ -135,6 +135,16 @@ export const api = {
     });
   },
 
+  undo(id: string, requestId: string, baseRevision: number): Promise<PatchResult> {
+    return request<PatchResult>(`/${id}/undo`, {
+      method: "POST",
+      body: JSON.stringify({
+        request_id: requestId,
+        base_revision: baseRevision,
+      }),
+    });
+  },
+
   export(
     id: string,
     revision: number,

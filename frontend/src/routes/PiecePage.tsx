@@ -1,20 +1,10 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "../vendor/jsmind.js";
 import "../vendor/jsmind.draggable-node.js";
 import { useWorkspace } from "../store/workspace";
 import { useChat } from "../store/chat";
 import { editEventToOperation, piecesToNodeArray } from "../lib/adapter";
 import { newId, type Snapshot } from "../lib/types";
-
-function countSubtree(node: any): number {
-  let count = 0;
-  const walk = (n: any) => {
-    count += 1;
-    for (const child of n.children ?? []) walk(child);
-  };
-  walk(node);
-  return count;
-}
 
 interface JsMindEvent {
   evt: string;
@@ -23,7 +13,7 @@ interface JsMindEvent {
 }
 
 export default function PiecePage() {
-  const { snapshot, mutate, sync } = useWorkspace();
+  const { snapshot, mutate, undo, sync } = useWorkspace();
   const { setSelectedPieceId } = useChat();
   const containerRef = useRef<HTMLDivElement>(null);
   const jmRef = useRef<any>(null);
@@ -32,6 +22,17 @@ export default function PiecePage() {
   snapshotRef.current = snapshot;
   // 重绘导图时抑制 edit 事件（避免把 show 误判为用户编辑）。
   const suppressEditRef = useRef(false);
+
+  const [hint, setHint] = useState("");
+  const [canUndo, setCanUndo] = useState(false);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showUndoHintRef = useRef(() => {});
+  showUndoHintRef.current = () => {
+    setHint("");
+    setCanUndo(true);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = setTimeout(() => setCanUndo(false), 6000);
+  };
 
   // 用已确认快照重同步既有 jsMind 实例，尽量恢复选中/折叠/视口。
   const resync = useCallback((snap: Snapshot | null) => {
@@ -100,7 +101,11 @@ export default function PiecePage() {
       if (type === jsMind.event_type.edit) {
         if (suppressEditRef.current) return;
         const op = editEventToOperation(data.evt, data.data, snapshotRef.current);
-        if (op) void mutate([op]);
+        if (op) {
+          void mutate([op]).then((ok) => {
+            if (ok && op.type === "remove_piece") showUndoHintRef.current();
+          });
+        }
       } else if (type === jsMind.event_type.select) {
         setSelectedPieceId(data.node ?? null);
       }
@@ -109,6 +114,7 @@ export default function PiecePage() {
     return () => {
       jmRef.current = null;
       container.innerHTML = "";
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -151,10 +157,13 @@ export default function PiecePage() {
     const jm = jmRef.current;
     const sel = selected();
     if (!jm || !sel) return;
-    const text = window.prompt("新片段");
-    if (text && text.trim()) {
-      const node = jm.add_node(sel, newId(), text.trim());
-      if (node) jm.select_node(node.id);
+    setHint("");
+    setCanUndo(false);
+    const id = newId();
+    const node = jm.add_node(sel, id, "新片段");
+    if (node) {
+      jm.select_node(node.id);
+      jm.begin_edit(node.id);
     }
   }
 
@@ -162,10 +171,9 @@ export default function PiecePage() {
     const jm = jmRef.current;
     const sel = selected();
     if (!jm || !sel) return;
-    const text = window.prompt("节点内容", sel.topic);
-    if (text && text.trim()) {
-      jm.update_node(sel.id, text.trim());
-    }
+    setHint("");
+    setCanUndo(false);
+    jm.begin_edit(sel);
   }
 
   function deleteBranch() {
@@ -173,13 +181,18 @@ export default function PiecePage() {
     const sel = selected();
     if (!jm || !sel) return;
     if (sel.isroot) {
-      window.alert("根节点不可删除");
+      setCanUndo(false);
+      setHint("根节点不可删除");
       return;
     }
-    const affected = countSubtree(sel);
-    if (window.confirm(`删除这个节点及其 ${affected - 1} 个子节点？`)) {
-      jm.remove_node(sel.id);
-    }
+    setHint("");
+    jm.remove_node(sel.id);
+  }
+
+  function handleUndo() {
+    setCanUndo(false);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    void undo();
   }
 
   function backToCenter() {
@@ -203,6 +216,15 @@ export default function PiecePage() {
         </button>
         <button onClick={backToCenter}>回到中心</button>
       </div>
+      {hint ? <p className="map-hint map-hint--error">{hint}</p> : null}
+      {canUndo ? (
+        <p className="map-hint map-hint--undo">
+          已删除{" "}
+          <button type="button" onClick={handleUndo} disabled={busy}>
+            撤销
+          </button>
+        </p>
+      ) : null}
       <p className="map-hint">
         双击或 F2 编辑 · Tab 加子片段 · Enter 加同级 · Delete 删除 · 拖拽移动
       </p>

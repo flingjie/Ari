@@ -30,6 +30,7 @@ interface WorkspaceContextValue {
   remoteRevision: number;
   load: (id: string) => Promise<void>;
   mutate: (ops: Operation[], requestId?: string) => Promise<boolean>;
+  undo: () => Promise<boolean>;
   retry: () => Promise<boolean>;
   applyServerSnapshot: (revision: number, snapshot: Snapshot) => void;
 }
@@ -95,8 +96,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         const rid = requestId ?? crypto.randomUUID();
         lastReqRef.current = { requestId: rid, ops };
         setSync({ status: "pending" });
-        try {
-          const res = await api.patch(id, rid, revisionRef.current, ops);
+
+        const applyOk = (res: { snapshot: Snapshot; revision: number }) => {
           if (epoch !== loadEpochRef.current) return false;
           setSnapshot(res.snapshot);
           setRevision(res.revision);
@@ -104,20 +105,47 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           lastReqRef.current = null;
           setSync({ status: "idle" });
           return true;
+        };
+
+        const markConflict = (currentRevision?: number) => {
+          if (epoch !== loadEpochRef.current) return;
+          setSync({
+            status: "conflict",
+            message: "已在别处更新，本次改动未能合并",
+            currentRevision,
+          });
+        };
+
+        try {
+          const res = await api.patch(id, rid, revisionRef.current, ops);
+          return applyOk(res);
         } catch (e) {
           if (epoch !== loadEpochRef.current) return false;
           if (e instanceof ApiError && e.status === 409) {
-            const detail = e.detail as
-              | { current_revision?: number; message?: string }
-              | undefined;
-            setSync({
-              status: "conflict",
-              message: detail?.message ?? "工作区已在别处更新",
-              currentRevision: detail?.current_revision,
-            });
-          } else {
-            setSync({ status: "error", message: "保存失败，已保留待同步" });
+            // 拉最新快照后用新 request_id 重放一次；首次 409 未写收据，重放安全。
+            try {
+              const fresh = await api.get(id);
+              if (epoch !== loadEpochRef.current) return false;
+              setSnapshot(fresh.snapshot);
+              setRevision(fresh.revision);
+              revisionRef.current = fresh.revision;
+              setRemoteRevision((n) => n + 1);
+
+              const replayId = crypto.randomUUID();
+              lastReqRef.current = { requestId: replayId, ops };
+              const replayed = await api.patch(id, replayId, fresh.revision, ops);
+              return applyOk(replayed);
+            } catch (replayErr) {
+              if (epoch !== loadEpochRef.current) return false;
+              const detail =
+                replayErr instanceof ApiError && replayErr.status === 409
+                  ? (replayErr.detail as { current_revision?: number } | undefined)
+                  : undefined;
+              markConflict(detail?.current_revision);
+              return false;
+            }
           }
+          setSync({ status: "error", message: "保存失败，已保留待同步" });
           return false;
         }
       });
@@ -136,6 +164,51 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (!last) return Promise.resolve(false);
     return mutate(last.ops, last.requestId);
   }, [mutate]);
+
+  const undo = useCallback((): Promise<boolean> => {
+    const run = queueRef.current.then(async () => {
+      const id = workspaceIdRef.current;
+      if (!id) return false;
+      const epoch = loadEpochRef.current;
+      const rid = crypto.randomUUID();
+      setSync({ status: "pending" });
+      try {
+        const res = await api.undo(id, rid, revisionRef.current);
+        if (epoch !== loadEpochRef.current) return false;
+        setSnapshot(res.snapshot);
+        setRevision(res.revision);
+        revisionRef.current = res.revision;
+        setSync({ status: "idle" });
+        setRemoteRevision((n) => n + 1);
+        return true;
+      } catch (e) {
+        if (epoch !== loadEpochRef.current) return false;
+        if (e instanceof ApiError && e.status === 409) {
+          const detail = e.detail as
+            | { current_revision?: number; message?: string }
+            | string
+            | undefined;
+          setSync({
+            status: "conflict",
+            message:
+              typeof detail === "string"
+                ? detail
+                : (detail?.message ?? "无法撤销"),
+            currentRevision:
+              typeof detail === "object" ? detail?.current_revision : undefined,
+          });
+        } else {
+          setSync({ status: "error", message: "撤销失败" });
+        }
+        return false;
+      }
+    });
+    queueRef.current = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
+  }, []);
 
   const applyServerSnapshot = useCallback((rev: number, snap: Snapshot) => {
     setSnapshot(snap);
@@ -156,6 +229,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         remoteRevision,
         load,
         mutate,
+        undo,
         retry,
         applyServerSnapshot,
       }}

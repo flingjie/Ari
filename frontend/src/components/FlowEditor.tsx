@@ -1,6 +1,15 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useWorkspace } from "../store/workspace";
+import { useStructureEditor } from "../lib/useStructureEditor";
+import { DraftRemoteBanner } from "../lib/useDraft";
 import { newId, type Flow, type FlowBranch, type FlowFeedback, type FlowStep } from "../lib/types";
+import { EditorActions } from "./EditorActions";
+
+type FlowDraft = {
+  steps: FlowStep[];
+  branches: FlowBranch[];
+  feedback: FlowFeedback[];
+};
 
 export function FlowEditor({
   perspectiveId,
@@ -11,25 +20,44 @@ export function FlowEditor({
   flow: Flow | null;
   onSaved: (ok: boolean) => void;
 }) {
-  const { snapshot, mutate } = useWorkspace();
+  const { snapshot } = useWorkspace();
   const pillars = (snapshot?.pillars ?? []).filter((p) => p.perspective_id === perspectiveId);
 
-  const [steps, setSteps] = useState<FlowStep[]>(flow?.steps ?? []);
-  const [branches, setBranches] = useState<FlowBranch[]>(flow?.branches ?? []);
-  const [feedback, setFeedback] = useState<FlowFeedback[]>(flow?.feedback ?? []);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const remote = useMemo<FlowDraft>(
+    () => ({
+      steps: flow?.steps ?? [],
+      branches: flow?.branches ?? [],
+      feedback: flow?.feedback ?? [],
+    }),
+    [flow],
+  );
+  const { draft, saving, error, save } = useStructureEditor(remote, onSaved);
+  const { steps, branches, feedback } = draft.value;
+  const [focusStepId, setFocusStepId] = useState<string | null>(null);
 
-  useEffect(() => {
-    setSteps(flow?.steps ?? []);
-    setBranches(flow?.branches ?? []);
-    setFeedback(flow?.feedback ?? []);
-  }, [flow]);
+  function setSteps(updater: FlowStep[] | ((prev: FlowStep[]) => FlowStep[])) {
+    draft.setValue((d) => ({
+      ...d,
+      steps: typeof updater === "function" ? updater(d.steps) : updater,
+    }));
+  }
+  function setBranches(updater: FlowBranch[] | ((prev: FlowBranch[]) => FlowBranch[])) {
+    draft.setValue((d) => ({
+      ...d,
+      branches: typeof updater === "function" ? updater(d.branches) : updater,
+    }));
+  }
+  function setFeedback(updater: FlowFeedback[] | ((prev: FlowFeedback[]) => FlowFeedback[])) {
+    draft.setValue((d) => ({
+      ...d,
+      feedback: typeof updater === "function" ? updater(d.feedback) : updater,
+    }));
+  }
 
   function addStep() {
-    const text = window.prompt("步骤名称");
-    if (!text || !text.trim()) return;
-    setSteps((s) => [...s, { id: newId(), text: text.trim(), pillar_id: null }]);
+    const id = newId();
+    setSteps((s) => [...s, { id, text: "", pillar_id: null }]);
+    setFocusStepId(id);
   }
 
   function updateStep(id: string, patch: Partial<FlowStep>) {
@@ -68,31 +96,14 @@ export function FlowEditor({
     setFeedback((f) => f.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   }
 
-  function save() {
-    if (steps.length < 2) {
-      setError("流程至少需要两个步骤");
-      return;
-    }
-    const structure: Flow = {
-      type: "flow",
-      perspective_id: perspectiveId,
-      steps,
-      branches: branches.filter((b) => b.from_step_id && b.to_step_id),
-      feedback: feedback.filter((f) => f.from_step_id && f.to_step_id),
-    };
-    setSaving(true);
-    setError("");
-    void mutate([{ type: "set_flow", structure }]).then((ok) => {
-      setSaving(false);
-      if (!ok) setError("保存失败，请检查流程结构");
-      onSaved(ok);
-    });
-  }
-
   const stepOptions = steps.map((s) => ({ id: s.id, label: s.text || s.id }));
 
   return (
     <div className="editor">
+      <DraftRemoteBanner
+        show={draft.dirty && draft.remoteChanged}
+        onAccept={draft.acceptRemote}
+      />
       <h4>步骤（顺序即流程顺序）</h4>
       {steps.map((s, i) => (
         <div key={s.id} className="editor-row">
@@ -100,7 +111,11 @@ export function FlowEditor({
           <input
             value={s.text}
             placeholder="步骤名称"
+            autoFocus={focusStepId === s.id}
             onChange={(e) => updateStep(s.id, { text: e.target.value })}
+            onBlur={() => {
+              if (focusStepId === s.id) setFocusStepId(null);
+            }}
           />
           <select
             value={s.pillar_id ?? ""}
@@ -212,12 +227,26 @@ export function FlowEditor({
         ＋ 反馈
       </button>
 
-      <div className="editor-actions">
-        <button className="primary" onClick={save} disabled={saving}>
-          {saving ? "保存中…" : "保存流程"}
-        </button>
-        {error ? <span className="editor-error">{error}</span> : null}
-      </div>
+      <EditorActions
+        saving={saving}
+        saveLabel="保存流程"
+        error={error}
+        onSave={() =>
+          save(
+            (value) => ({
+              type: "set_flow",
+              structure: {
+                type: "flow",
+                perspective_id: perspectiveId,
+                steps: value.steps,
+                branches: value.branches.filter((b) => b.from_step_id && b.to_step_id),
+                feedback: value.feedback.filter((f) => f.from_step_id && f.to_step_id),
+              },
+            }),
+            (value) => (value.steps.length < 2 ? "流程至少需要两个步骤" : null),
+          )
+        }
+      />
     </div>
   );
 }

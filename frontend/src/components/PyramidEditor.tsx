@@ -1,7 +1,15 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useWorkspace } from "../store/workspace";
+import { useStructureEditor } from "../lib/useStructureEditor";
+import { DraftRemoteBanner } from "../lib/useDraft";
 import { newId, type Pyramid, type PyramidPoint } from "../lib/types";
+import { EditorActions } from "./EditorActions";
 import { MaterialPicker } from "./MaterialPicker";
+
+type PyramidDraft = {
+  conclusion: string;
+  points: PyramidPoint[];
+};
 
 export function PyramidEditor({
   perspectiveId,
@@ -12,52 +20,51 @@ export function PyramidEditor({
   pyramid: Pyramid | null;
   onSaved: (ok: boolean) => void;
 }) {
-  const { snapshot, mutate } = useWorkspace();
+  const { snapshot } = useWorkspace();
   const pillars = (snapshot?.pillars ?? []).filter((p) => p.perspective_id === perspectiveId);
   const pieces = (snapshot?.pieces ?? [])
     .filter((p) => p.id !== snapshot?.root_id)
     .map((p) => ({ id: p.id, text: p.text }));
 
-  const [conclusion, setConclusion] = useState(pyramid?.conclusion ?? "");
-  const [points, setPoints] = useState<PyramidPoint[]>(pyramid?.points ?? []);
-  const [saving, setSaving] = useState(false);
+  const remote = useMemo<PyramidDraft>(
+    () => ({
+      conclusion: pyramid?.conclusion ?? "",
+      points: pyramid?.points ?? [],
+    }),
+    [pyramid],
+  );
+  const { draft, saving, error, save } = useStructureEditor(remote, onSaved);
+  const { conclusion, points } = draft.value;
+  const [focusPointId, setFocusPointId] = useState<string | null>(null);
 
-  useEffect(() => {
-    setConclusion(pyramid?.conclusion ?? "");
-    setPoints(pyramid?.points ?? []);
-  }, [pyramid]);
+  function setPoints(updater: PyramidPoint[] | ((prev: PyramidPoint[]) => PyramidPoint[])) {
+    draft.setValue((d) => ({
+      ...d,
+      points: typeof updater === "function" ? updater(d.points) : updater,
+    }));
+  }
 
   function addPoint() {
-    const text = window.prompt("要点名称");
-    if (!text || !text.trim()) return;
-    setPoints((p) => [...p, { id: newId(), text: text.trim(), pillar_id: null, evidence: [] }]);
+    const id = newId();
+    setPoints((p) => [...p, { id, text: "", pillar_id: null, evidence: [] }]);
+    setFocusPointId(id);
   }
 
   function updatePoint(id: string, patch: Partial<PyramidPoint>) {
     setPoints((p) => p.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   }
 
-  function save() {
-    const structure: Pyramid = {
-      type: "pyramid",
-      perspective_id: perspectiveId,
-      conclusion,
-      points,
-    };
-    setSaving(true);
-    void mutate([{ type: "set_pyramid", structure }]).then((ok) => {
-      setSaving(false);
-      onSaved(ok);
-    });
-  }
-
   return (
     <div className="editor">
+      <DraftRemoteBanner
+        show={draft.dirty && draft.remoteChanged}
+        onAccept={draft.acceptRemote}
+      />
       <div className="editor-row">
         <input
           value={conclusion}
           placeholder="核心结论"
-          onChange={(e) => setConclusion(e.target.value)}
+          onChange={(e) => draft.setValue((d) => ({ ...d, conclusion: e.target.value }))}
         />
       </div>
 
@@ -68,7 +75,11 @@ export function PyramidEditor({
             <input
               value={pt.text}
               placeholder="要点"
+              autoFocus={focusPointId === pt.id}
               onChange={(e) => updatePoint(pt.id, { text: e.target.value })}
+              onBlur={() => {
+                if (focusPointId === pt.id) setFocusPointId(null);
+              }}
             />
             <select
               value={pt.pillar_id ?? ""}
@@ -96,11 +107,22 @@ export function PyramidEditor({
         ＋ 要点
       </button>
 
-      <div className="editor-actions">
-        <button className="primary" onClick={save} disabled={saving}>
-          {saving ? "保存中…" : "保存金字塔"}
-        </button>
-      </div>
+      <EditorActions
+        saving={saving}
+        saveLabel="保存金字塔"
+        error={error}
+        onSave={() =>
+          save((value) => ({
+            type: "set_pyramid",
+            structure: {
+              type: "pyramid",
+              perspective_id: perspectiveId,
+              conclusion: value.conclusion,
+              points: value.points,
+            },
+          }))
+        }
+      />
     </div>
   );
 }

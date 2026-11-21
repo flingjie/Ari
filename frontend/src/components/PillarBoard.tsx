@@ -8,7 +8,17 @@ export interface CardOp {
   requestId: string;
 }
 
-function PillarName({ name, onRename }: { name: string; onRename: (v: string) => void }) {
+function PillarName({
+  name,
+  onRename,
+  autoFocus,
+  onFocused,
+}: {
+  name: string;
+  onRename: (v: string) => void;
+  autoFocus?: boolean;
+  onFocused?: () => void;
+}) {
   const [value, setValue] = useState(name);
   useEffect(() => setValue(name), [name]);
   return (
@@ -16,7 +26,11 @@ function PillarName({ name, onRename }: { name: string; onRename: (v: string) =>
       className="groupname"
       value={value}
       aria-label="支柱名"
+      autoFocus={autoFocus}
       onChange={(e) => setValue(e.target.value)}
+      onFocus={() => {
+        if (autoFocus) onFocused?.();
+      }}
       onBlur={() => {
         const v = value.trim();
         if (v && v !== name) onRename(v);
@@ -32,6 +46,8 @@ export function PillarBoard({
   onRenamePillar,
   pending,
   failed,
+  focusPillarId,
+  onFocusPillarConsumed,
 }: {
   view: GroupedView;
   onMove: (pieceId: string, pillarId: string | null) => void;
@@ -39,6 +55,8 @@ export function PillarBoard({
   onRenamePillar: (id: string, name: string) => void;
   pending: Record<string, CardOp>;
   failed: Record<string, CardOp>;
+  focusPillarId?: string | null;
+  onFocusPillarConsumed?: () => void;
 }) {
   const [overKey, setOverKey] = useState<string | null>(null);
 
@@ -81,7 +99,12 @@ export function PillarBoard({
             }}
           >
             {col.id !== null ? (
-              <PillarName name={col.name} onRename={(v) => onRenamePillar(col.id as string, v)} />
+              <PillarName
+                name={col.name}
+                onRename={(v) => onRenamePillar(col.id as string, v)}
+                autoFocus={focusPillarId === col.id}
+                onFocused={onFocusPillarConsumed}
+              />
             ) : (
               <b>待归类</b>
             )}

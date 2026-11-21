@@ -267,18 +267,20 @@ def resolve_proposal(
         else:  # ignore
             ops = []
 
-        snapshot = WorkspaceSnapshot.model_validate_json(row["snapshot"])
+        prev_snapshot = row["snapshot"]
+        snapshot = WorkspaceSnapshot.model_validate_json(prev_snapshot)
         if ops:
             apply_all(snapshot, ops)
 
         new_revision = row["revision"] + (1 if ops else 0)
+        result_json = snapshot.model_dump_json()
         if ops:
             conn.execute(
                 "UPDATE workspaces SET revision = ?, snapshot = ?, root_id = ?, "
                 "active_perspective_id = ?, updated_at = ? WHERE id = ?",
                 (
                     new_revision,
-                    snapshot.model_dump_json(),
+                    result_json,
                     snapshot.root_id,
                     snapshot.active_perspective_id,
                     _now(),
@@ -290,16 +292,17 @@ def resolve_proposal(
         )
         conn.execute(
             "INSERT INTO resolve_receipts "
-            "(request_id, workspace_id, proposal_id, action, revision, result, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(request_id, workspace_id, proposal_id, action, revision, result, status, "
+            "prev_snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 request_id,
                 workspace_id,
                 proposal_id,
                 action,
                 new_revision,
-                snapshot.model_dump_json(),
+                result_json,
                 action,
+                prev_snapshot if ops else None,
             ),
         )
         conn.commit()

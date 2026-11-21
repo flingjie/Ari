@@ -6,8 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from ..domain.operations import Operation
 from ..domain.grouping import GroupedView
+from ..domain.operations import Operation
 from ..domain.visualizations import VisualizationView
 from ..models import WorkspaceSnapshot
 
@@ -46,6 +46,11 @@ class PatchRequest(BaseModel):
 class PatchResponse(BaseModel):
     revision: int
     snapshot: WorkspaceSnapshot
+
+
+class UndoRequest(BaseModel):
+    request_id: str
+    base_revision: int
 
 
 class MessageRequest(BaseModel):

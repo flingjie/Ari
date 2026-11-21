@@ -1,28 +1,31 @@
-import { useEffect, useState } from "react";
 import { useWorkspace } from "../store/workspace";
+import { DraftRemoteBanner, useDraft } from "../lib/useDraft";
 
 export default function PurposePage() {
   const { snapshot, mutate } = useWorkspace();
-  const [text, setText] = useState(snapshot?.purpose ?? "");
-
-  // 提交成功（snapshot.purpose 变化）后同步；值相等时无重绘副作用。
-  useEffect(() => {
-    setText(snapshot?.purpose ?? "");
-  }, [snapshot?.purpose]);
+  const draft = useDraft(snapshot?.purpose ?? "");
 
   function commit() {
-    if (text !== snapshot?.purpose) {
-      void mutate([{ type: "set_purpose", text }]);
+    if (draft.value === snapshot?.purpose) {
+      draft.markClean();
+      return;
     }
+    void mutate([{ type: "set_purpose", text: draft.value }]).then((ok) => {
+      if (ok) draft.markClean();
+    });
   }
 
   return (
     <>
+      <DraftRemoteBanner
+        show={draft.dirty && draft.remoteChanged}
+        onAccept={draft.acceptRemote}
+      />
       <textarea
         aria-label="本次目的"
-        value={text}
+        value={draft.value}
         placeholder="例如：怎样判断读者是否实际使用过教程？"
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => draft.setValue(e.target.value)}
         onBlur={commit}
       />
     </>

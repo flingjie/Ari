@@ -28,6 +28,7 @@ export default function PillarPage() {
   const [showMatrixEditor, setShowMatrixEditor] = useState(false);
   const [showPyramidEditor, setShowPyramidEditor] = useState(false);
   const [showLogicTreeEditor, setShowLogicTreeEditor] = useState(false);
+  const [focusPillarId, setFocusPillarId] = useState<string | null>(null);
 
   const activeId = snapshot?.active_perspective_id ?? null;
 
@@ -35,6 +36,7 @@ export default function PillarPage() {
     activeRef.current = activeId;
     setPending({});
     setFailed({});
+    setFocusPillarId(null);
   }, [activeId]);
 
   useEffect(() => {
@@ -98,12 +100,11 @@ export default function PillarPage() {
     void mutate([{ type: "rename_pillar", id, name }]);
   }
   function addPillar() {
-    const name = window.prompt("支柱名称");
-    if (name && name.trim()) {
-      void mutate([
-        { type: "add_pillar", id: newId(), perspective_id: currentActiveId, name: name.trim() },
-      ]);
-    }
+    const id = newId();
+    setFocusPillarId(id);
+    void mutate([
+      { type: "add_pillar", id, perspective_id: currentActiveId, name: "新支柱" },
+    ]);
   }
 
   function commitAssignment(pieceId: string, pillarId: string | null) {
@@ -156,10 +157,11 @@ export default function PillarPage() {
     });
   }
 
-  if (status === "loading") {
+  // 刷新分组时保留上一帧 view，避免卸掉结构编辑器丢失未保存草稿。
+  if (status === "loading" && !view) {
     return <div className="card">加载中…</div>;
   }
-  if (status === "error" || !view) {
+  if (!view) {
     return (
       <div className="card">
         <p>{error ?? "加载分组失败，请重试"}</p>
@@ -178,6 +180,8 @@ export default function PillarPage() {
         onRenamePillar={renamePillar}
         pending={pending}
         failed={failed}
+        focusPillarId={focusPillarId}
+        onFocusPillarConsumed={() => setFocusPillarId(null)}
       />
       <button onClick={addPillar}>＋ 新支柱</button>
 

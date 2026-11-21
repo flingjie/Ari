@@ -16,7 +16,7 @@ export function SaveStatus() {
   if (sync.status === "conflict") {
     return (
       <span className="sync-status conflict">
-        已在别处更新
+        {sync.message ?? "已在别处更新，本次改动未能合并"}
         {workspaceId ? (
           <button onClick={() => void load(workspaceId)}>重新加载</button>
         ) : null}

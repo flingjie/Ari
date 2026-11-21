@@ -17,7 +17,6 @@ from ..agents.stage import (
 from ..domain.export import ExportError, render
 from ..domain.grouping import GroupedViewError, build_grouped_view
 from ..domain.operations import Operation, OperationError
-from ..domain.visualizations import VisualizationViewError, build_visualization_view
 from ..domain.proposals import (
     ProposalResolvedError,
     StaleProposalError,
@@ -29,12 +28,15 @@ from ..domain.proposals import (
     resolve_proposal,
     store_message_and_proposal,
 )
+from ..domain.visualizations import VisualizationViewError, build_visualization_view
 from ..domain.workspace import (
     ConflictError,
+    NothingToUndoError,
     ReceiptConflictError,
     apply_patch,
     create_workspace,
     get_workspace,
+    undo_last,
 )
 from ..llm.runner import create_runner
 from .deps import get_conn, settings
@@ -53,6 +55,7 @@ from .schemas import (
     ProposalSummary,
     ResolveRequest,
     ResolveResponse,
+    UndoRequest,
     VisualizationQuery,
     VisualizationResponse,
     WorkspaceResponse,
@@ -154,6 +157,26 @@ def patch(workspace_id: str, body: PatchRequest, conn=Depends(get_conn)) -> Patc
     return PatchResponse(revision=revision, snapshot=snapshot)
 
 
+@router.post("/{workspace_id}/undo", response_model=PatchResponse)
+def undo(workspace_id: str, body: UndoRequest, conn=Depends(get_conn)) -> PatchResponse:
+    try:
+        revision, snapshot = undo_last(
+            conn, workspace_id, body.request_id, body.base_revision
+        )
+    except ConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(exc), "current_revision": exc.current_revision},
+        ) from None
+    except NothingToUndoError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except ReceiptConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    return PatchResponse(revision=revision, snapshot=snapshot)
+
+
 @router.get("/{workspace_id}/messages", response_model=MessagePageResponse)
 def list_messages_endpoint(
     workspace_id: str, limit: int = 30, before: str | None = None, conn=Depends(get_conn)
@@ -169,7 +192,7 @@ def list_messages_endpoint(
 
 
 @router.post("/{workspace_id}/messages", response_model=MessageResponse)
-def send_message(
+async def send_message(
     workspace_id: str, body: MessageRequest, conn=Depends(get_conn)
 ) -> MessageResponse:
     # 幂等：同一 request_id 直接返回已存储的回复，但校验内容一致。
@@ -210,7 +233,8 @@ def send_message(
         body.stage, build_context(snapshot, body.stage, history), body.question
     )
     try:
-        output = runner.run(prompt, OUTPUT_MODELS[body.stage])
+        # 异步 LLM：不占用 FastAPI 同步线程池。
+        output = await runner.run(prompt, OUTPUT_MODELS[body.stage])
         reply, ops = materialize(body.stage, output, snapshot)
         validate_operations(body.stage, ops, snapshot)
     except Exception as exc:  # 模型失败保留工作区，返回可重试状态

@@ -1,16 +1,15 @@
 """OpenAI 兼容的纯结构化推理 runner（无工具、单次 HTTP 调用，移植 Finch）。
 
 只用 OpenAI 兼容网关这一条路径；不涉及 codex 子进程。
-用标准库 ``urllib`` POST 到 ``{base_url}/chat/completions``，不引入 SDK 依赖；
+用 ``httpx`` 异步 POST 到 ``{base_url}/chat/completions``；
 ``temperature=0``；把 Pydantic JSON Schema 放进 system prompt；容忍 markdown 代码块。
 """
 
 from __future__ import annotations
 
 import json
-import urllib.error
-import urllib.request
 
+import httpx
 from pydantic import BaseModel
 
 from ..settings import LLMNodeSettings, LLMSettings
@@ -35,7 +34,7 @@ class OpenAICompatibleRunner:
         self.timeout = timeout
         self.max_tokens = max_tokens
 
-    def run(
+    async def run(
         self,
         prompt: str,
         output_model: type[BaseModel],
@@ -47,7 +46,7 @@ class OpenAICompatibleRunner:
         last_error: Exception | None = None
         for _ in range(max_attempts):
             try:
-                return self._run_once(prompt, output_model, timeout=effective_timeout)
+                return await self._run_once(prompt, output_model, timeout=effective_timeout)
             except (json.JSONDecodeError, StructuredOutputError) as exc:
                 last_error = exc
         raise StructuredOutputError(
@@ -55,7 +54,7 @@ class OpenAICompatibleRunner:
             f"attempts: {last_error}"
         ) from last_error
 
-    def _run_once(
+    async def _run_once(
         self, prompt: str, output_model: type[BaseModel], *, timeout: float
     ) -> BaseModel:
         schema = json.dumps(output_model.model_json_schema())
@@ -75,27 +74,29 @@ class OpenAICompatibleRunner:
         }
         if self.max_tokens is not None:
             payload["max_tokens"] = self.max_tokens
-        request = urllib.request.Request(
-            f"{self.base_url}/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                body = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", "replace")[:200]
-            raise RuntimeError(f"LLM request failed ({exc.code}): {detail}") from exc
-        except TimeoutError as exc:
-            raise RuntimeError(f"LLM request timed out after {timeout:g}s") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"LLM request failed: {exc.reason}") from exc
 
-        data = json.loads(body)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {self.api_key}",
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(f"LLM request timed out after {timeout:g}s") from exc
+        except httpx.HTTPStatusError as exc:
+            detail = (exc.response.text or "")[:200]
+            raise RuntimeError(
+                f"LLM request failed ({exc.response.status_code}): {detail}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"LLM request failed: {exc}") from exc
+
         choices = data.get("choices") or []
         if not choices:
             raise RuntimeError("LLM response missing choices")

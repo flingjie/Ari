@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS mutation_receipts (
     workspace_id TEXT NOT NULL,
     revision INTEGER NOT NULL,
     payload_hash TEXT NOT NULL,
-    result TEXT NOT NULL
+    result TEXT NOT NULL,
+    prev_snapshot TEXT
 );
 
 CREATE TABLE IF NOT EXISTS resolve_receipts (
@@ -61,7 +62,8 @@ CREATE TABLE IF NOT EXISTS resolve_receipts (
     action TEXT NOT NULL,
     revision INTEGER NOT NULL,
     result TEXT NOT NULL,
-    status TEXT NOT NULL
+    status TEXT NOT NULL,
+    prev_snapshot TEXT
 );
 """
 
@@ -83,4 +85,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
     if "piece_id" not in cols:
         conn.execute("ALTER TABLE messages ADD COLUMN piece_id TEXT")
+    # 迁移：收据表补 prev_snapshot，供撤销上一步。
+    for table in ("mutation_receipts", "resolve_receipts"):
+        tcols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if "prev_snapshot" not in tcols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN prev_snapshot TEXT")
     conn.commit()

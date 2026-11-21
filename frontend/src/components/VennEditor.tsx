@@ -1,11 +1,20 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { useWorkspace } from "../store/workspace";
+import { useStructureEditor } from "../lib/useStructureEditor";
+import { DraftRemoteBanner } from "../lib/useDraft";
 import {
   newId,
   type SetMember,
   type SetsStructure,
   type VennSet,
 } from "../lib/types";
+import { EditorActions } from "./EditorActions";
+
+type VennDraft = {
+  setA: VennSet;
+  setB: VennSet;
+  members: SetMember[];
+};
 
 export function VennEditor({
   perspectiveId,
@@ -16,58 +25,54 @@ export function VennEditor({
   sets: SetsStructure | null;
   onSaved: (ok: boolean) => void;
 }) {
-  const { snapshot, mutate } = useWorkspace();
+  const { snapshot } = useWorkspace();
   const pieces = (snapshot?.pieces ?? []).filter((p) => p.id !== snapshot?.root_id);
 
-  const [setA, setSetA] = useState<VennSet>(sets?.set_a ?? { id: newId(), name: "" });
-  const [setB, setSetB] = useState<VennSet>(sets?.set_b ?? { id: newId(), name: "" });
-  const [members, setMembers] = useState<SetMember[]>(sets?.members ?? []);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setSetA(sets?.set_a ?? { id: newId(), name: "" });
-    setSetB(sets?.set_b ?? { id: newId(), name: "" });
-    setMembers(sets?.members ?? []);
-  }, [sets]);
+  const remote = useMemo<VennDraft>(
+    () => ({
+      setA: sets?.set_a ?? { id: newId(), name: "" },
+      setB: sets?.set_b ?? { id: newId(), name: "" },
+      members: sets?.members ?? [],
+    }),
+    [sets],
+  );
+  const { draft, saving, error, save } = useStructureEditor(remote, onSaved);
+  const { setA, setB, members } = draft.value;
 
   function regionOf(pieceId: string): "" | "a" | "b" | "both" {
     return members.find((m) => m.piece_id === pieceId)?.region ?? "";
   }
 
   function setRegion(pieceId: string, region: "" | "a" | "b" | "both") {
-    setMembers((prev) => {
-      const rest = prev.filter((m) => m.piece_id !== pieceId);
-      return region === "" ? rest : [...rest, { piece_id: pieceId, region }];
-    });
-  }
-
-  function save() {
-    const structure: SetsStructure = {
-      type: "sets",
-      perspective_id: perspectiveId,
-      set_a: setA,
-      set_b: setB,
-      members,
-    };
-    setSaving(true);
-    void mutate([{ type: "set_sets", structure }]).then((ok) => {
-      setSaving(false);
-      onSaved(ok);
+    draft.setValue((d) => {
+      const rest = d.members.filter((m) => m.piece_id !== pieceId);
+      return {
+        ...d,
+        members: region === "" ? rest : [...rest, { piece_id: pieceId, region }],
+      };
     });
   }
 
   return (
     <div className="editor">
+      <DraftRemoteBanner
+        show={draft.dirty && draft.remoteChanged}
+        onAccept={draft.acceptRemote}
+      />
       <div className="editor-row">
         <input
           value={setA.name}
           placeholder="集合 A 名称"
-          onChange={(e) => setSetA((s) => ({ ...s, name: e.target.value }))}
+          onChange={(e) =>
+            draft.setValue((d) => ({ ...d, setA: { ...d.setA, name: e.target.value } }))
+          }
         />
         <input
           value={setB.name}
           placeholder="集合 B 名称"
-          onChange={(e) => setSetB((s) => ({ ...s, name: e.target.value }))}
+          onChange={(e) =>
+            draft.setValue((d) => ({ ...d, setB: { ...d.setB, name: e.target.value } }))
+          }
         />
       </div>
 
@@ -87,11 +92,23 @@ export function VennEditor({
         </div>
       ))}
 
-      <div className="editor-actions">
-        <button className="primary" onClick={save} disabled={saving}>
-          {saving ? "保存中…" : "保存集合"}
-        </button>
-      </div>
+      <EditorActions
+        saving={saving}
+        saveLabel="保存集合"
+        error={error}
+        onSave={() =>
+          save((value) => ({
+            type: "set_sets",
+            structure: {
+              type: "sets",
+              perspective_id: perspectiveId,
+              set_a: value.setA,
+              set_b: value.setB,
+              members: value.members,
+            },
+          }))
+        }
+      />
     </div>
   );
 }

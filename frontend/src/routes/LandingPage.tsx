@@ -5,15 +5,17 @@ import { api } from "../api/client";
 export function LandingPage() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   async function start(template?: string) {
     setBusy(true);
+    setError("");
     try {
       const ws = await api.create(template);
       navigate(`/w/${ws.id}/purpose`);
     } catch {
       setBusy(false);
-      window.alert("创建工作区失败，请确认后端已启动");
+      setError("创建工作区失败，请确认后端已启动");
     }
   }
 
@@ -35,6 +37,7 @@ export function LandingPage() {
             使用教程示例
           </button>
         </div>
+        {error ? <p className="editor-error">{error}</p> : null}
       </div>
     </div>
   );

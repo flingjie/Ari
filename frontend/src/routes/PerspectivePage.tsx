@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useWorkspace } from "../store/workspace";
 import { useChat } from "../store/chat";
 import { newId } from "../lib/types";
@@ -6,6 +7,10 @@ import { PerspectiveCard } from "../components/PerspectiveCard";
 export default function PerspectivePage() {
   const { snapshot, mutate, workspaceId, revision } = useWorkspace();
   const chat = useChat();
+  const [draftOpen, setDraftOpen] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [draftReason, setDraftReason] = useState("");
+
   if (!snapshot) return null;
 
   const active = snapshot.active_perspective_id;
@@ -14,13 +19,25 @@ export default function PerspectivePage() {
     void mutate([{ type: "set_active_perspective", id }]);
   }
 
-  function addPerspective() {
-    const name = window.prompt("视角名称");
-    if (!name || !name.trim()) return;
-    const reason = window.prompt("这个角度能回答什么？") || "";
+  function openDraft() {
+    setDraftOpen(true);
+    setDraftName("");
+    setDraftReason("");
+  }
+
+  function cancelDraft() {
+    setDraftOpen(false);
+    setDraftName("");
+    setDraftReason("");
+  }
+
+  function submitDraft() {
+    const name = draftName.trim();
+    if (!name) return;
     void mutate([
-      { type: "add_perspective", id: newId(), name: name.trim(), reason: reason.trim() },
+      { type: "add_perspective", id: newId(), name, reason: draftReason.trim() },
     ]);
+    cancelDraft();
   }
 
   function suggestWithAI() {
@@ -28,16 +45,56 @@ export default function PerspectivePage() {
     chat.setDraft("请从两个有实质区别的角度帮我看看这些材料");
   }
 
+  const draftForm = (
+    <div className="perspective-draft">
+      <div className="editor-row">
+        <input
+          value={draftName}
+          placeholder="视角名称"
+          autoFocus
+          onChange={(e) => setDraftName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submitDraft();
+          }}
+        />
+      </div>
+      <div className="editor-row">
+        <input
+          value={draftReason}
+          placeholder="这个角度能回答什么？"
+          onChange={(e) => setDraftReason(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submitDraft();
+          }}
+        />
+      </div>
+      <div className="editor-actions">
+        <button className="primary" type="button" onClick={submitDraft} disabled={!draftName.trim()}>
+          添加
+        </button>
+        <button type="button" onClick={cancelDraft}>
+          取消
+        </button>
+      </div>
+    </div>
+  );
+
   if (snapshot.perspectives.length === 0) {
     return (
       <div className="card perspective-empty">
         <p>还没有视角。从一个能区分材料的角度开始。</p>
-        <p>
-          <button onClick={addPerspective}>＋ 自定义视角</button>
-        </p>
-        <p>
-          <button onClick={suggestWithAI}>让 AI 建议视角</button>
-        </p>
+        {draftOpen ? (
+          draftForm
+        ) : (
+          <>
+            <p>
+              <button onClick={openDraft}>＋ 自定义视角</button>
+            </p>
+            <p>
+              <button onClick={suggestWithAI}>让 AI 建议视角</button>
+            </p>
+          </>
+        )}
       </div>
     );
   }
@@ -54,9 +111,13 @@ export default function PerspectivePage() {
           onSelect={select}
         />
       ))}
-      <button className="perspective-grid__add" onClick={addPerspective}>
-        ＋ 自定义视角
-      </button>
+      {draftOpen ? (
+        draftForm
+      ) : (
+        <button className="perspective-grid__add" onClick={openDraft}>
+          ＋ 自定义视角
+        </button>
+      )}
     </div>
   );
 }

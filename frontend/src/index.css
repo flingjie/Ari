@@ -451,6 +451,21 @@ a:focus-visible {
   align-self: start;
 }
 
+.perspective-draft {
+  background: #fffef9;
+  border: 1px solid #d2d7cb;
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.perspective-empty .perspective-draft {
+  margin-top: 10px;
+  background: #f7f5ef;
+}
+
 .perspective-empty p {
   margin: 6px 0;
 }
@@ -939,4 +954,24 @@ a:focus-visible {
   font-size: 13px;
   color: #8a8f86;
   margin: 8px 0 0;
+}
+
+.map-hint--error {
+  color: #a33;
+}
+
+.map-hint--undo {
+  color: #536457;
+}
+
+.map-hint--undo button {
+  margin-left: 6px;
+  padding: 2px 8px;
+  font-size: 13px;
+}
+
+.draft-remote-banner button {
+  margin-left: 6px;
+  padding: 2px 8px;
+  font-size: 13px;
 }

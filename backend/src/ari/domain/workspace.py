@@ -30,6 +30,10 @@ class ReceiptConflictError(RuntimeError):
     """同一 request_id 对应不同载荷，或属于另一工作区。"""
 
 
+class NothingToUndoError(RuntimeError):
+    """当前 revision 没有可回滚的收据，或旧收据缺少 prev_snapshot。"""
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -40,6 +44,13 @@ def payload_hash(base_revision: int, operations: list[Operation]) -> str:
         "operations": [op.model_dump() for op in operations],
     }
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def undo_payload_hash(base_revision: int) -> str:
+    raw = json.dumps(
+        {"undo": True, "base_revision": base_revision}, sort_keys=True, ensure_ascii=False
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -136,16 +147,18 @@ def apply_patch(
         if base_revision != current_revision:
             raise ConflictError(current_revision)
 
-        snapshot = WorkspaceSnapshot.model_validate_json(row["snapshot"])
+        prev_snapshot = row["snapshot"]
+        snapshot = WorkspaceSnapshot.model_validate_json(prev_snapshot)
         apply_all(snapshot, operations)
 
         new_revision = current_revision + 1
+        result_json = snapshot.model_dump_json()
         conn.execute(
             "UPDATE workspaces SET revision = ?, snapshot = ?, root_id = ?, "
             "active_perspective_id = ?, updated_at = ? WHERE id = ?",
             (
                 new_revision,
-                snapshot.model_dump_json(),
+                result_json,
                 snapshot.root_id,
                 snapshot.active_perspective_id,
                 _now(),
@@ -154,13 +167,118 @@ def apply_patch(
         )
         conn.execute(
             "INSERT INTO mutation_receipts "
-            "(request_id, workspace_id, revision, payload_hash, result) VALUES (?, ?, ?, ?, ?)",
+            "(request_id, workspace_id, revision, payload_hash, result, prev_snapshot) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (
                 request_id,
                 workspace_id,
                 new_revision,
                 payload_hash(base_revision, operations),
-                snapshot.model_dump_json(),
+                result_json,
+                prev_snapshot,
+            ),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return new_revision, snapshot
+
+
+def _find_prev_snapshot(
+    conn: sqlite3.Connection, workspace_id: str, revision: int
+) -> str | None:
+    """在 mutation / resolve 收据中找推进到该 revision 的 prev_snapshot。"""
+    row = conn.execute(
+        "SELECT prev_snapshot FROM mutation_receipts "
+        "WHERE workspace_id = ? AND revision = ?",
+        (workspace_id, revision),
+    ).fetchone()
+    if row is not None and row["prev_snapshot"]:
+        return row["prev_snapshot"]
+    row = conn.execute(
+        "SELECT prev_snapshot FROM resolve_receipts "
+        "WHERE workspace_id = ? AND revision = ?",
+        (workspace_id, revision),
+    ).fetchone()
+    if row is not None and row["prev_snapshot"]:
+        return row["prev_snapshot"]
+    return None
+
+
+def undo_last(
+    conn: sqlite3.Connection,
+    workspace_id: str,
+    request_id: str,
+    base_revision: int,
+) -> tuple[int, WorkspaceSnapshot]:
+    """把工作区回滚到当前 revision 写入前的快照；undo 本身可幂等、可再次 undo。"""
+    receipt = conn.execute(
+        "SELECT * FROM mutation_receipts WHERE request_id = ?", (request_id,)
+    ).fetchone()
+    if receipt is not None:
+        if receipt["workspace_id"] != workspace_id:
+            raise ReceiptConflictError("request_id 属于另一个工作区")
+        if receipt["payload_hash"] != undo_payload_hash(base_revision):
+            raise ReceiptConflictError("同一 request_id 对应不同载荷")
+        return receipt["revision"], WorkspaceSnapshot.model_validate_json(receipt["result"])
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        receipt = conn.execute(
+            "SELECT * FROM mutation_receipts WHERE request_id = ?", (request_id,)
+        ).fetchone()
+        if receipt is not None:
+            if receipt["workspace_id"] != workspace_id:
+                raise ReceiptConflictError("request_id 属于另一个工作区")
+            if receipt["payload_hash"] != undo_payload_hash(base_revision):
+                raise ReceiptConflictError("同一 request_id 对应不同载荷")
+            result = (
+                receipt["revision"],
+                WorkspaceSnapshot.model_validate_json(receipt["result"]),
+            )
+            conn.commit()
+            return result
+
+        row = conn.execute(
+            "SELECT * FROM workspaces WHERE id = ?", (workspace_id,)
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"工作区不存在: {workspace_id}")
+        current_revision = row["revision"]
+        if base_revision != current_revision:
+            raise ConflictError(current_revision)
+
+        prev_json = _find_prev_snapshot(conn, workspace_id, current_revision)
+        if prev_json is None:
+            raise NothingToUndoError("没有可撤销的步骤")
+
+        snapshot = WorkspaceSnapshot.model_validate_json(prev_json)
+        new_revision = current_revision + 1
+        result_json = snapshot.model_dump_json()
+        conn.execute(
+            "UPDATE workspaces SET revision = ?, snapshot = ?, root_id = ?, "
+            "active_perspective_id = ?, updated_at = ? WHERE id = ?",
+            (
+                new_revision,
+                result_json,
+                snapshot.root_id,
+                snapshot.active_perspective_id,
+                _now(),
+                workspace_id,
+            ),
+        )
+        conn.execute(
+            "INSERT INTO mutation_receipts "
+            "(request_id, workspace_id, revision, payload_hash, result, prev_snapshot) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                request_id,
+                workspace_id,
+                new_revision,
+                undo_payload_hash(base_revision),
+                result_json,
+                row["snapshot"],
             ),
         )
         conn.commit()
@@ -173,8 +291,10 @@ def apply_patch(
 __all__ = [
     "ConflictError",
     "ReceiptConflictError",
+    "NothingToUndoError",
     "create_workspace",
     "get_workspace",
     "apply_patch",
+    "undo_last",
     "payload_hash",
 ]

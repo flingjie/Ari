@@ -1,5 +1,7 @@
 """消息历史读取与发送幂等。"""
 
+import asyncio
+
 import pytest
 from fastapi import HTTPException
 
@@ -68,12 +70,14 @@ def test_send_message_replay_returns_stored(conn, tutorial):
     store_message_and_proposal(
         conn, wid, "piece", "req-1", "原始问题", rev, "回复文本", [], {"message": "req-1"}
     )
-    res = send_message(
-        wid,
-        MessageRequest(
-            request_id="req-1", stage="piece", question="原始问题", base_revision=rev
-        ),
-        conn=conn,
+    res = asyncio.run(
+        send_message(
+            wid,
+            MessageRequest(
+                request_id="req-1", stage="piece", question="原始问题", base_revision=rev
+            ),
+            conn=conn,
+        )
     )
     assert res.reply == "回复文本"
     assert res.proposal_id is None
@@ -85,12 +89,14 @@ def test_send_message_replay_payload_mismatch_conflicts(conn, tutorial):
         conn, wid, "piece", "req-1", "原始问题", rev, "回复文本", [], {"message": "req-1"}
     )
     with pytest.raises(HTTPException) as ei:
-        send_message(
-            wid,
-            MessageRequest(
-                request_id="req-1", stage="piece", question="不同问题", base_revision=rev
-            ),
-            conn=conn,
+        asyncio.run(
+            send_message(
+                wid,
+                MessageRequest(
+                    request_id="req-1", stage="piece", question="不同问题", base_revision=rev
+                ),
+                conn=conn,
+            )
         )
     assert ei.value.status_code == 409
 
@@ -98,16 +104,18 @@ def test_send_message_replay_payload_mismatch_conflicts(conn, tutorial):
 def test_send_message_invalid_piece_id_rejected(conn, tutorial):
     wid, rev, _ = tutorial
     with pytest.raises(HTTPException) as ei:
-        send_message(
-            wid,
-            MessageRequest(
-                request_id="fresh",
-                stage="piece",
-                question="问",
-                base_revision=rev,
-                piece_id="does-not-exist",
-            ),
-            conn=conn,
+        asyncio.run(
+            send_message(
+                wid,
+                MessageRequest(
+                    request_id="fresh",
+                    stage="piece",
+                    question="问",
+                    base_revision=rev,
+                    piece_id="does-not-exist",
+                ),
+                conn=conn,
+            )
         )
     assert ei.value.status_code == 422
 

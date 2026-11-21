@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useWorkspace } from "../store/workspace";
+import { useStructureEditor } from "../lib/useStructureEditor";
+import { DraftRemoteBanner } from "../lib/useDraft";
 import { newId, type LogicTree, type LogicTreeNode } from "../lib/types";
+import { EditorActions } from "./EditorActions";
 import { MaterialPicker } from "./MaterialPicker";
 
 export function LogicTreeEditor({
@@ -12,24 +15,22 @@ export function LogicTreeEditor({
   tree: LogicTree | null;
   onSaved: (ok: boolean) => void;
 }) {
-  const { snapshot, mutate } = useWorkspace();
+  const { snapshot } = useWorkspace();
   const pieces = (snapshot?.pieces ?? [])
     .filter((p) => p.id !== snapshot?.root_id)
     .map((p) => ({ id: p.id, text: p.text }));
 
-  const [nodes, setNodes] = useState<LogicTreeNode[]>(tree?.nodes ?? []);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => setNodes(tree?.nodes ?? []), [tree]);
+  const remote = useMemo(() => tree?.nodes ?? [], [tree]);
+  const { draft, saving, error, save } = useStructureEditor(remote, onSaved);
+  const nodes = draft.value;
+  const setNodes = draft.setValue;
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
 
   function addNode() {
-    const text = window.prompt("问题名称");
-    if (!text || !text.trim()) return;
+    const id = newId();
     const parent = nodes.length ? nodes[0].id : null;
-    setNodes((n) => [
-      ...n,
-      { id: newId(), text: text.trim(), parent_id: parent, materials: [] },
-    ]);
+    setNodes((n) => [...n, { id, text: "", parent_id: parent, materials: [] }]);
+    setFocusNodeId(id);
   }
 
   function updateNode(id: string, patch: Partial<LogicTreeNode>) {
@@ -53,9 +54,6 @@ export function LogicTreeEditor({
 
   function removeNode(id: string) {
     const doomed = descendantsOf(id);
-    if (doomed.size > 1 && !window.confirm(`将删除该问题及其 ${doomed.size - 1} 个子问题，继续？`)) {
-      return;
-    }
     setNodes((n) => n.filter((x) => !doomed.has(x.id)));
   }
 
@@ -78,28 +76,23 @@ export function LogicTreeEditor({
     });
   }
 
-  function save() {
-    const structure: LogicTree = {
-      type: "logic_tree",
-      perspective_id: perspectiveId,
-      nodes,
-    };
-    setSaving(true);
-    void mutate([{ type: "set_logic_tree", structure }]).then((ok) => {
-      setSaving(false);
-      onSaved(ok);
-    });
-  }
-
   return (
     <div className="editor">
+      <DraftRemoteBanner
+        show={draft.dirty && draft.remoteChanged}
+        onAccept={draft.acceptRemote}
+      />
       {nodes.map((n) => (
         <div key={n.id} className="editor-block">
           <div className="editor-row">
             <input
               value={n.text}
               placeholder="问题"
+              autoFocus={focusNodeId === n.id}
               onChange={(e) => updateNode(n.id, { text: e.target.value })}
+              onBlur={() => {
+                if (focusNodeId === n.id) setFocusNodeId(null);
+              }}
             />
             <select
               value={n.parent_id ?? ""}
@@ -138,11 +131,21 @@ export function LogicTreeEditor({
         ＋ 问题
       </button>
 
-      <div className="editor-actions">
-        <button className="primary" onClick={save} disabled={saving}>
-          {saving ? "保存中…" : "保存逻辑树"}
-        </button>
-      </div>
+      <EditorActions
+        saving={saving}
+        saveLabel="保存逻辑树"
+        error={error}
+        onSave={() =>
+          save((value) => ({
+            type: "set_logic_tree",
+            structure: {
+              type: "logic_tree",
+              perspective_id: perspectiveId,
+              nodes: value,
+            },
+          }))
+        }
+      />
     </div>
   );
 }
