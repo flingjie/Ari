@@ -51,12 +51,31 @@ class MessageRequest(BaseModel):
     stage: Stage
     question: str
     base_revision: int
+    piece_id: str | None = None
 
 
 class MessageResponse(BaseModel):
     reply: str
     proposal_id: str | None
     revision: int
+    proposal: ProposalSummary | None = None
+
+
+class MessageSummary(BaseModel):
+    id: str
+    stage: Stage
+    question: str
+    reply: str | None
+    proposal_id: str | None
+    piece_id: str | None
+    base_revision: int
+    created_at: str
+    proposal: ProposalSummary | None = None
+
+
+class MessagePageResponse(BaseModel):
+    messages: list[MessageSummary]
+    next_before: str | None = None
 
 
 class ResolveRequest(BaseModel):

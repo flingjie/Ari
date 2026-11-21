@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useWorkspace } from "../store/workspace";
 import { newId, type Piece, type Pillar } from "../lib/types";
-import { StageAssistant } from "../components/StageAssistant";
 
 function PillarName({ name, onRename }: { name: string; onRename: (v: string) => void }) {
   const [value, setValue] = useState(name);
@@ -138,7 +137,6 @@ export default function PillarPage() {
         );
       })}
       <button onClick={addPillar}>＋ 新支柱</button>
-      <StageAssistant stage="pillar" />
     </div>
   );
 }

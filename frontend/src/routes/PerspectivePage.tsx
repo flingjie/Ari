@@ -1,6 +1,5 @@
 import { useWorkspace } from "../store/workspace";
 import { newId } from "../lib/types";
-import { StageAssistant } from "../components/StageAssistant";
 
 export default function PerspectivePage() {
   const { snapshot, mutate } = useWorkspace();
@@ -35,7 +34,6 @@ export default function PerspectivePage() {
         </button>
       ))}
       <button onClick={addPerspective}>＋ 自定义视角</button>
-      <StageAssistant stage="perspective" />
     </div>
   );
 }

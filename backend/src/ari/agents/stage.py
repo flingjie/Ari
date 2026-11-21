@@ -24,6 +24,14 @@ Stage = Literal["purpose", "piece", "perspective", "pillar", "presentation"]
 
 PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
+STAGE_LABELS: dict[Stage, str] = {
+    "purpose": "目的",
+    "piece": "片段",
+    "perspective": "视角",
+    "pillar": "支柱",
+    "presentation": "表达",
+}
+
 # 每个阶段允许的 AI 操作（阶段权限）。
 STAGE_ALLOWED_OPS: dict[Stage, set[str]] = {
     "purpose": {"set_purpose"},
@@ -88,8 +96,22 @@ OUTPUT_MODELS: dict[Stage, type[BaseModel]] = {
 }
 
 
-def build_context(snapshot: WorkspaceSnapshot, stage: Stage) -> dict[str, str]:
-    """按阶段装配提示词上下文。"""
+def build_history_text(history: list[dict] | None) -> str:
+    """把此前问答渲染成提示词文本（旧→新）。"""
+    if not history:
+        return ""
+    lines: list[str] = []
+    for item in history:
+        stage_label = STAGE_LABELS.get(item.get("stage", ""), item.get("stage", ""))
+        lines.append(f"- 问（{stage_label}）：{item.get('question', '')}")
+        lines.append(f"  答：{item.get('reply', '')}")
+    return "\n".join(lines)
+
+
+def build_context(
+    snapshot: WorkspaceSnapshot, stage: Stage, history: list[dict] | None = None
+) -> dict[str, str]:
+    """按阶段装配提示词上下文（含此前多轮问答）。"""
     active = snapshot.active_perspective_id
     perspective_name = ""
     pillars_json = "[]"
@@ -116,6 +138,7 @@ def build_context(snapshot: WorkspaceSnapshot, stage: Stage) -> dict[str, str]:
         "active_perspective": perspective_name,
         "pillars_json": pillars_json,
         "assignments_json": assignments_json,
+        "history": build_history_text(history),
     }
 
 

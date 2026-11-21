@@ -15,13 +15,21 @@ from pydantic import TypeAdapter
 
 from ..models import WorkspaceSnapshot
 from .operations import Operation, apply_all
-from .workspace import ConflictError, ReceiptConflictError, payload_hash
+from .workspace import ConflictError, ReceiptConflictError
 
 operation_list = TypeAdapter(list[Operation])
 
 
 class ProposalResolvedError(ValueError):
     """提案已处理，不能再次解决。"""
+
+
+class StaleProposalError(ValueError):
+    """提案基于旧内容生成，采纳/改写前需重新生成。"""
+
+    def __init__(self, current_revision: int) -> None:
+        super().__init__("提案基于旧内容生成，请基于最新内容重新生成")
+        self.current_revision = current_revision
 
 
 def _now() -> str:
@@ -37,11 +45,12 @@ def create_message(
     base_revision: int,
     reply: str,
     proposal_id: str | None,
+    piece_id: str | None = None,
 ) -> None:
     conn.execute(
         "INSERT INTO messages "
         "(id, workspace_id, stage, request_id, question, base_revision, status, "
-        "reply, proposal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "reply, proposal_id, piece_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             uuid.uuid4().hex,
             workspace_id,
@@ -52,6 +61,7 @@ def create_message(
             "done",
             reply,
             proposal_id,
+            piece_id,
             _now(),
         ),
     )
@@ -63,6 +73,66 @@ def get_message_by_request_id(
     return conn.execute(
         "SELECT * FROM messages WHERE request_id = ?", (request_id,)
     ).fetchone()
+
+
+def get_proposal(
+    conn: sqlite3.Connection, proposal_id: str
+) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
+    ).fetchone()
+
+
+def _decode_cursor(cursor: str | None) -> tuple[str, str] | None:
+    """游标编码 ``created_at|id``；稳定排序键。"""
+    if not cursor:
+        return None
+    created_at, _, msg_id = cursor.partition("|")
+    return (created_at, msg_id) if msg_id else None
+
+
+def list_messages(
+    conn: sqlite3.Connection,
+    workspace_id: str,
+    limit: int = 30,
+    before: str | None = None,
+) -> tuple[list[dict], str | None]:
+    """返回一页消息（页面内按时间正序）与下一页游标（更早的消息）。"""
+    key = _decode_cursor(before)
+    if key:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE workspace_id = ? AND (created_at, id) < (?, ?) "
+            "ORDER BY created_at DESC, id DESC LIMIT ?",
+            (workspace_id, key[0], key[1], limit + 1),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE workspace_id = ? "
+            "ORDER BY created_at DESC, id DESC LIMIT ?",
+            (workspace_id, limit + 1),
+        ).fetchall()
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    next_cursor = None
+    if has_more and page:
+        last = page[-1]
+        next_cursor = f"{last['created_at']}|{last['id']}"
+    page.reverse()
+    return [dict(r) for r in page], next_cursor
+
+
+def list_recent_messages(
+    conn: sqlite3.Connection, workspace_id: str, limit: int = 6
+) -> list[dict]:
+    """最近若干条已完成问答（旧→新），用于多轮上下文。"""
+    rows = conn.execute(
+        "SELECT stage, question, reply FROM messages WHERE workspace_id = ? "
+        "AND status = 'done' ORDER BY created_at DESC, id DESC LIMIT ?",
+        (workspace_id, limit),
+    ).fetchall()
+    rows = list(rows)
+    rows.reverse()
+    return [dict(r) for r in rows]
 
 
 def create_proposal(
@@ -102,6 +172,7 @@ def store_message_and_proposal(
     reply: str,
     change_set: list[Operation],
     refs: dict,
+    piece_id: str | None = None,
 ) -> str | None:
     """在一个事务内写入消息 + 待处理提案，返回 proposal_id（无提案则为 None）。"""
     conn.execute("BEGIN IMMEDIATE")
@@ -120,6 +191,7 @@ def store_message_and_proposal(
             base_revision,
             reply,
             proposal_id,
+            piece_id,
         )
         conn.commit()
     except Exception:
@@ -148,9 +220,26 @@ def resolve_proposal(
     action: str,
     operations: list[Operation] | None,
 ) -> tuple[int, WorkspaceSnapshot]:
-    """解决提案；accept/edit 应用操作并推进 revision，ignore 仅标记状态。"""
+    """解决提案；accept/edit 应用操作并推进 revision，ignore 仅标记状态。
+
+    三种动作统一幂等：重复 resolve 按 request_id 命中 resolve_receipts 返回原结果。
+    accept/edit 额外要求提案自身的 base_revision 与当前 revision 一致，避免旧建议覆盖新内容。
+    """
     conn.execute("BEGIN IMMEDIATE")
     try:
+        receipt = conn.execute(
+            "SELECT * FROM resolve_receipts WHERE request_id = ?", (request_id,)
+        ).fetchone()
+        if receipt is not None:
+            if receipt["workspace_id"] != workspace_id:
+                raise ReceiptConflictError("request_id 属于另一个工作区")
+            if receipt["proposal_id"] != proposal_id or receipt["action"] != action:
+                raise ReceiptConflictError("同一 request_id 对应不同载荷")
+            conn.commit()
+            return receipt["revision"], WorkspaceSnapshot.model_validate_json(
+                receipt["result"]
+            )
+
         prop = conn.execute(
             "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
         ).fetchone()
@@ -168,6 +257,8 @@ def resolve_proposal(
             raise LookupError("工作区不存在")
         if base_revision != row["revision"]:
             raise ConflictError(row["revision"])
+        if action in ("accept", "edit") and prop["base_revision"] != row["revision"]:
+            raise StaleProposalError(row["revision"])
 
         if action == "accept":
             ops = operation_list.validate_python(json.loads(prop["change_set"]))
@@ -175,21 +266,6 @@ def resolve_proposal(
             ops = operations or []
         else:  # ignore
             ops = []
-
-        # 幂等检查（仅 accept/edit 产生 mutation）。
-        if ops:
-            receipt = conn.execute(
-                "SELECT * FROM mutation_receipts WHERE request_id = ?", (request_id,)
-            ).fetchone()
-            if receipt is not None:
-                if receipt["workspace_id"] != workspace_id:
-                    raise ReceiptConflictError("request_id 属于另一个工作区")
-                if receipt["payload_hash"] != payload_hash(base_revision, ops):
-                    raise ReceiptConflictError("同一 request_id 对应不同载荷")
-                conn.commit()
-                return receipt["revision"], WorkspaceSnapshot.model_validate_json(
-                    receipt["result"]
-                )
 
         snapshot = WorkspaceSnapshot.model_validate_json(row["snapshot"])
         if ops:
@@ -209,20 +285,22 @@ def resolve_proposal(
                     workspace_id,
                 ),
             )
-            conn.execute(
-                "INSERT INTO mutation_receipts "
-                "(request_id, workspace_id, revision, payload_hash, result) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (
-                    request_id,
-                    workspace_id,
-                    new_revision,
-                    payload_hash(base_revision, ops),
-                    snapshot.model_dump_json(),
-                ),
-            )
         conn.execute(
             "UPDATE proposals SET status = ? WHERE id = ?", (action, proposal_id)
+        )
+        conn.execute(
+            "INSERT INTO resolve_receipts "
+            "(request_id, workspace_id, proposal_id, action, revision, result, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                request_id,
+                workspace_id,
+                proposal_id,
+                action,
+                new_revision,
+                snapshot.model_dump_json(),
+                action,
+            ),
         )
         conn.commit()
     except Exception:

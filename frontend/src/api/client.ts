@@ -8,6 +8,17 @@ export interface WorkspacePayload {
   id: string;
   revision: number;
   snapshot: Snapshot;
+  proposals?: ProposalSummary[];
+}
+
+export interface ProposalSummary {
+  id: string;
+  stage: Stage;
+  base_revision: number;
+  refs: Record<string, unknown>;
+  change_set: Operation[];
+  status: string;
+  created_at: string;
 }
 
 export interface PatchResult {
@@ -25,6 +36,24 @@ export interface MessageResult {
   reply: string;
   proposal_id: string | null;
   revision: number;
+  proposal?: ProposalSummary | null;
+}
+
+export interface MessageSummary {
+  id: string;
+  stage: Stage;
+  question: string;
+  reply: string | null;
+  proposal_id: string | null;
+  piece_id: string | null;
+  base_revision: number;
+  created_at: string;
+  proposal: ProposalSummary | null;
+}
+
+export interface MessagePageResult {
+  messages: MessageSummary[];
+  next_before: string | null;
 }
 
 export interface ResolveResult {
@@ -110,6 +139,7 @@ export const api = {
     stage: Stage,
     question: string,
     baseRevision: number,
+    pieceId?: string,
   ): Promise<MessageResult> {
     return request<MessageResult>(`/${id}/messages`, {
       method: "POST",
@@ -118,8 +148,19 @@ export const api = {
         stage,
         question,
         base_revision: baseRevision,
+        piece_id: pieceId ?? null,
       }),
     });
+  },
+
+  listMessages(
+    id: string,
+    limit = 30,
+    before?: string,
+  ): Promise<MessagePageResult> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (before) params.set("before", before);
+    return request<MessagePageResult>(`/${id}/messages?${params.toString()}`);
   },
 
   resolveProposal(

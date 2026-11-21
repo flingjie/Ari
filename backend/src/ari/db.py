@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS messages (
     status TEXT NOT NULL,
     reply TEXT,
     proposal_id TEXT,
+    piece_id TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -52,6 +53,16 @@ CREATE TABLE IF NOT EXISTS mutation_receipts (
     payload_hash TEXT NOT NULL,
     result TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS resolve_receipts (
+    request_id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    proposal_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    result TEXT NOT NULL,
+    status TEXT NOT NULL
+);
 """
 
 
@@ -66,6 +77,10 @@ def connect(path: str | Path) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """幂等建表。"""
+    """幂等建表 + 旧库迁移。"""
     conn.executescript(_SCHEMA)
+    # 迁移：旧库 messages 无 piece_id 列，补上（新增表无需此步）。
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
+    if "piece_id" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN piece_id TEXT")
     conn.commit()

@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { useWorkspace } from "../store/workspace";
-import { StageAssistant } from "../components/StageAssistant";
 
 export default function PresentationPage() {
   const { snapshot, revision, workspaceId } = useWorkspace();
@@ -85,7 +84,6 @@ export default function PresentationPage() {
       </div>
       {error ? <p className="sync-status error">{error}</p> : null}
       <pre className="card">{content}</pre>
-      <StageAssistant stage="presentation" />
     </div>
   );
 }

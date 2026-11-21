@@ -18,8 +18,12 @@ from ..domain.export import ExportError, render
 from ..domain.operations import Operation, OperationError
 from ..domain.proposals import (
     ProposalResolvedError,
+    StaleProposalError,
     get_message_by_request_id,
+    get_proposal,
+    list_messages,
     list_pending_proposals,
+    list_recent_messages,
     resolve_proposal,
     store_message_and_proposal,
 )
@@ -36,8 +40,10 @@ from .schemas import (
     CreateRequest,
     ExportQuery,
     ExportResponse,
+    MessagePageResponse,
     MessageRequest,
     MessageResponse,
+    MessageSummary,
     PatchRequest,
     PatchResponse,
     ProposalSummary,
@@ -51,21 +57,44 @@ router = APIRouter()
 _operation_list = TypeAdapter(list[Operation])
 
 
+def _proposal_summary_from_row(p: dict) -> ProposalSummary:
+    return ProposalSummary(
+        id=p["id"],
+        stage=p["stage"],
+        base_revision=p["base_revision"],
+        refs=json.loads(p["refs"]),
+        change_set=_operation_list.validate_python(json.loads(p["change_set"])),
+        status=p["status"],
+        created_at=p["created_at"],
+    )
+
+
 def _proposal_summaries(conn, workspace_id: str) -> list[ProposalSummary]:
-    out = []
-    for p in list_pending_proposals(conn, workspace_id):
-        out.append(
-            ProposalSummary(
-                id=p["id"],
-                stage=p["stage"],
-                base_revision=p["base_revision"],
-                refs=json.loads(p["refs"]),
-                change_set=_operation_list.validate_python(json.loads(p["change_set"])),
-                status=p["status"],
-                created_at=p["created_at"],
-            )
-        )
-    return out
+    return [
+        _proposal_summary_from_row(dict(p))
+        for p in list_pending_proposals(conn, workspace_id)
+    ]
+
+
+def _message_proposal(conn, proposal_id: str | None) -> ProposalSummary | None:
+    if not proposal_id:
+        return None
+    p = get_proposal(conn, proposal_id)
+    return _proposal_summary_from_row(dict(p)) if p is not None else None
+
+
+def _message_summary(conn, m: dict) -> MessageSummary:
+    return MessageSummary(
+        id=m["id"],
+        stage=m["stage"],
+        question=m["question"],
+        reply=m["reply"],
+        proposal_id=m["proposal_id"],
+        piece_id=m["piece_id"],
+        base_revision=m["base_revision"],
+        created_at=m["created_at"],
+        proposal=_message_proposal(conn, m["proposal_id"]),
+    )
 
 
 def _collect_piece_refs(ops: list[Operation]) -> list[str]:
@@ -119,23 +148,36 @@ def patch(workspace_id: str, body: PatchRequest, conn=Depends(get_conn)) -> Patc
     return PatchResponse(revision=revision, snapshot=snapshot)
 
 
+@router.get("/{workspace_id}/messages", response_model=MessagePageResponse)
+def list_messages_endpoint(
+    workspace_id: str, limit: int = 30, before: str | None = None, conn=Depends(get_conn)
+) -> MessagePageResponse:
+    ws = get_workspace(conn, workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="工作区不存在")
+    limit = max(1, min(limit, 100))
+    rows, next_before = list_messages(conn, workspace_id, limit, before)
+    return MessagePageResponse(
+        messages=[_message_summary(conn, m) for m in rows], next_before=next_before
+    )
+
+
 @router.post("/{workspace_id}/messages", response_model=MessageResponse)
 def send_message(
     workspace_id: str, body: MessageRequest, conn=Depends(get_conn)
 ) -> MessageResponse:
-    # 幂等：同一 request_id 直接返回已存储的回复。
+    # 幂等：同一 request_id 直接返回已存储的回复，但校验内容一致。
     existing = get_message_by_request_id(conn, body.request_id)
     if existing is not None:
+        if existing["workspace_id"] != workspace_id:
+            raise HTTPException(status_code=409, detail="request_id 属于另一个工作区")
+        if existing["question"] != body.question or existing["stage"] != body.stage:
+            raise HTTPException(status_code=409, detail="同一 request_id 对应不同载荷")
         return MessageResponse(
             reply=existing["reply"],
             proposal_id=existing["proposal_id"],
             revision=existing["base_revision"],
-        )
-
-    runner = create_runner(settings.llm, body.stage)
-    if runner is None:
-        raise HTTPException(
-            status_code=503, detail="AI 未配置（需 ari.yaml 的 llm.base_url/model 与 LLM_API_KEY）"
+            proposal=_message_proposal(conn, existing["proposal_id"]),
         )
 
     ws = get_workspace(conn, workspace_id)
@@ -148,8 +190,18 @@ def send_message(
         )
 
     snapshot = ws["snapshot"]
+    if body.piece_id is not None and snapshot.piece(body.piece_id) is None:
+        raise HTTPException(status_code=422, detail="引用片段不存在或不属于当前工作区")
+
+    runner = create_runner(settings.llm, body.stage)
+    if runner is None:
+        raise HTTPException(
+            status_code=503, detail="AI 未配置（需 ari.yaml 的 llm.base_url/model 与 LLM_API_KEY）"
+        )
+
+    history = list_recent_messages(conn, workspace_id, limit=6)
     prompt = render_prompt(
-        body.stage, build_context(snapshot, body.stage), body.question
+        body.stage, build_context(snapshot, body.stage, history), body.question
     )
     try:
         output = runner.run(prompt, OUTPUT_MODELS[body.stage])
@@ -159,6 +211,8 @@ def send_message(
         raise HTTPException(status_code=502, detail=f"模型调用失败：{exc}") from None
 
     refs = {"message": body.request_id, "piece_ids": _collect_piece_refs(ops)}
+    if body.piece_id is not None:
+        refs["piece_ids"] = sorted(set(refs.get("piece_ids", [])) | {body.piece_id})
     proposal_id = store_message_and_proposal(
         conn,
         workspace_id,
@@ -169,8 +223,14 @@ def send_message(
         reply,
         ops,
         refs,
+        body.piece_id,
     )
-    return MessageResponse(reply=reply, proposal_id=proposal_id, revision=ws["revision"])
+    return MessageResponse(
+        reply=reply,
+        proposal_id=proposal_id,
+        revision=ws["revision"],
+        proposal=_message_proposal(conn, proposal_id),
+    )
 
 
 @router.post("/{workspace_id}/proposals/{proposal_id}/resolve", response_model=ResolveResponse)
@@ -192,6 +252,15 @@ def resolve(
         )
     except ProposalResolvedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
+    except StaleProposalError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(exc),
+                "reason": "proposal_stale",
+                "current_revision": exc.current_revision,
+            },
+        ) from None
     except ConflictError as exc:
         raise HTTPException(
             status_code=409,

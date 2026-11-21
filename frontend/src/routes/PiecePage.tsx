@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef } from "react";
 import "../vendor/jsmind.js";
 import "../vendor/jsmind.draggable-node.js";
 import { useWorkspace } from "../store/workspace";
+import { useChat } from "../store/chat";
 import { editEventToOperation, piecesToNodeArray } from "../lib/adapter";
 import { newId, type Snapshot } from "../lib/types";
-import { StageAssistant } from "../components/StageAssistant";
 
 function countSubtree(node: any): number {
   let count = 0;
@@ -16,13 +16,22 @@ function countSubtree(node: any): number {
   return count;
 }
 
+interface JsMindEvent {
+  evt: string;
+  data: unknown[];
+  node?: string;
+}
+
 export default function PiecePage() {
   const { snapshot, mutate, sync } = useWorkspace();
+  const { setSelectedPieceId } = useChat();
   const containerRef = useRef<HTMLDivElement>(null);
   const jmRef = useRef<any>(null);
   // 始终指向最近一次已确认快照（供 edit 事件解析 _first_/失败回滚）。
   const snapshotRef = useRef<Snapshot | null>(snapshot);
   snapshotRef.current = snapshot;
+  // 重绘导图时抑制 edit 事件（避免把 show 误判为用户编辑）。
+  const suppressEditRef = useRef(false);
 
   // 用已确认快照重同步既有 jsMind 实例，尽量恢复选中/折叠/视口。
   const resync = useCallback((snap: Snapshot | null) => {
@@ -40,7 +49,12 @@ export default function PiecePage() {
     };
     collect(jm.get_root());
 
-    jm.show({ meta: { name: "ari" }, format: "node_array", data: piecesToNodeArray(snap) });
+    suppressEditRef.current = true;
+    try {
+      jm.show({ meta: { name: "ari" }, format: "node_array", data: piecesToNodeArray(snap) });
+    } finally {
+      suppressEditRef.current = false;
+    }
 
     if (selectedId) {
       const node = jm.get_node(selectedId);
@@ -55,7 +69,7 @@ export default function PiecePage() {
     }
   }, []);
 
-  // 一次性建实例（拖拽插件已由副作用 import 注册）+ 绑定 edit 监听。
+  // 一次性建实例（拖拽插件已由副作用 import 注册）+ 绑定 edit/select 监听。
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -67,10 +81,13 @@ export default function PiecePage() {
       mode: window.innerWidth < 600 ? "side" : "full",
       shortcut: { enable: false },
     });
-    jm.add_event_listener((type: number, data: { evt: string; data: unknown[] }) => {
+    jm.add_event_listener((type: number, data: JsMindEvent) => {
       if (type === jsMind.event_type.edit) {
+        if (suppressEditRef.current) return;
         const op = editEventToOperation(data.evt, data.data, snapshotRef.current);
         if (op) void mutate([op]);
+      } else if (type === jsMind.event_type.select) {
+        setSelectedPieceId(data.node ?? null);
       }
     });
     jmRef.current = jm;
@@ -81,7 +98,7 @@ export default function PiecePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 已确认快照变化（保存成功 / AI 提案接受 / 重新加载）→ 重同步既有实例。
+  // 已确认快照变化（本地保存成功 / 远端提案 / 重新加载）→ 重同步既有实例。
   useEffect(() => {
     if (jmRef.current) resync(snapshot);
   }, [snapshot, resync]);
@@ -99,6 +116,11 @@ export default function PiecePage() {
       }
     }
   }, [sync.status, resync]);
+
+  // 离开片段页时清除选中的片段引用。
+  useEffect(() => {
+    return () => setSelectedPieceId(null);
+  }, [setSelectedPieceId]);
 
   const busy = sync.status === "pending";
 
@@ -164,7 +186,6 @@ export default function PiecePage() {
         </button>
         <button onClick={backToCenter}>回到中心</button>
       </div>
-      <StageAssistant stage="piece" />
     </>
   );
 }
