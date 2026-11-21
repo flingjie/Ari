@@ -6,6 +6,9 @@
 现有片段（id / text / parent_id，根节点 parent_id 为 null）：
 {pieces_json}
 
+此前对话（如无则忽略）：
+{history}
+
 用户补充：
 {question}
 

@@ -27,9 +27,11 @@ interface WorkspaceContextValue {
   snapshot: Snapshot | null;
   revision: number;
   sync: SyncState;
+  remoteRevision: number;
   load: (id: string) => Promise<void>;
   mutate: (ops: Operation[], requestId?: string) => Promise<boolean>;
   retry: () => Promise<boolean>;
+  applyServerSnapshot: (revision: number, snapshot: Snapshot) => void;
 }
 
 const Ctx = createContext<WorkspaceContextValue | null>(null);
@@ -46,6 +48,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [revision, setRevision] = useState(0);
   const [sync, setSync] = useState<SyncState>({ status: "idle" });
+  const [remoteRevision, setRemoteRevision] = useState(0);
 
   // 队列执行时读取最新值，用 ref 避免闭包过期。
   const workspaceIdRef = useRef<string | null>(null);
@@ -74,6 +77,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       revisionRef.current = ws.revision;
       setSync({ status: "idle" });
       setLoadState("ready");
+      setRemoteRevision((n) => n + 1);
     } catch {
       setLoadState("error");
     }
@@ -127,9 +131,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return mutate(last.ops, last.requestId);
   }, [mutate]);
 
+  const applyServerSnapshot = useCallback((rev: number, snap: Snapshot) => {
+    setSnapshot(snap);
+    setRevision(rev);
+    revisionRef.current = rev;
+    setSync({ status: "idle" });
+    setRemoteRevision((n) => n + 1);
+  }, []);
+
   return (
     <Ctx.Provider
-      value={{ workspaceId, loadState, snapshot, revision, sync, load, mutate, retry }}
+      value={{
+        workspaceId,
+        loadState,
+        snapshot,
+        revision,
+        sync,
+        remoteRevision,
+        load,
+        mutate,
+        retry,
+        applyServerSnapshot,
+      }}
     >
       {children}
     </Ctx.Provider>

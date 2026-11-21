@@ -3,7 +3,9 @@ import { Link, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { STAGES, STAGE_NAMES, type Stage } from "./lib/types";
 import { STAGE_HINTS, STAGE_TITLES } from "./lib/stageMeta";
 import { useWorkspace } from "./store/workspace";
+import { ChatProvider, useChat } from "./store/chat";
 import { SaveStatus } from "./components/SaveStatus";
+import { ChatPanel } from "./components/ChatPanel";
 import { LandingPage } from "./routes/LandingPage";
 import PurposePage from "./routes/PurposePage";
 import PiecePage from "./routes/PiecePage";
@@ -19,6 +21,19 @@ const PAGES: Record<Stage, () => JSX.Element | null> = {
   presentation: PresentationPage,
 };
 
+function ChatToggle() {
+  const { panelOpen, setPanelOpen } = useChat();
+  return (
+    <button
+      type="button"
+      aria-pressed={panelOpen}
+      onClick={() => setPanelOpen(!panelOpen)}
+    >
+      对话
+    </button>
+  );
+}
+
 function WorkspaceShell() {
   const { id, stage } = useParams<{ id: string; stage: Stage }>();
   const ws = useWorkspace();
@@ -29,6 +44,10 @@ function WorkspaceShell() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  if (!id) {
+    return <Navigate to="/" replace />;
+  }
 
   if (!stage || !(stage in PAGES)) {
     return <Navigate to={`/w/${id}/purpose`} replace />;
@@ -56,49 +75,58 @@ function WorkspaceShell() {
   const Page = PAGES[stage];
 
   return (
-    <div className="app">
-      <header>
-        <b>阿理 / Ari</b>
-        <SaveStatus />
-      </header>
+    <ChatProvider workspaceId={id} stage={stage}>
+      <div className="workspace">
+        <main className="workspace-main">
+          <header>
+            <b>阿理 / Ari</b>
+            <div className="actions">
+              <SaveStatus />
+              <ChatToggle />
+            </div>
+          </header>
 
-      <nav className="stage-nav" aria-label="阶段导航">
-        {STAGES.map((s) => (
-          <Link
-            key={s}
-            to={`/w/${id}/${s}`}
-            aria-current={s === stage ? "page" : undefined}
-          >
-            {STAGE_NAMES[s]}
-          </Link>
-        ))}
-      </nav>
+          <nav className="stage-nav" aria-label="阶段导航">
+            {STAGES.map((s) => (
+              <Link
+                key={s}
+                to={`/w/${id}/${s}`}
+                aria-current={s === stage ? "page" : undefined}
+              >
+                {STAGE_NAMES[s]}
+              </Link>
+            ))}
+          </nav>
 
-      <small>
-        {stageIndex + 1} / 5　{STAGES[stageIndex]}
-      </small>
-      <h1>{STAGE_TITLES[stage]}</h1>
-      <p>{STAGE_HINTS[stage]}</p>
+          <small>
+            {stageIndex + 1} / 5　{STAGES[stageIndex]}
+          </small>
+          <h1>{STAGE_TITLES[stage]}</h1>
+          <p>{STAGE_HINTS[stage]}</p>
 
-      <section>
-        <Page key={id} />
-      </section>
+          <section>
+            <Page key={id} />
+          </section>
 
-      <footer>
-        {stageIndex > 0 ? (
-          <Link to={`/w/${id}/${STAGES[stageIndex - 1]}`}>← 上一步</Link>
-        ) : (
-          <span />
-        )}
-        {stageIndex < STAGES.length - 1 ? (
-          <Link className="btn primary" to={`/w/${id}/${STAGES[stageIndex + 1]}`}>
-            下一步 · {STAGE_NAMES[STAGES[stageIndex + 1]]} →
-          </Link>
-        ) : (
-          <span />
-        )}
-      </footer>
-    </div>
+          <footer>
+            {stageIndex > 0 ? (
+              <Link to={`/w/${id}/${STAGES[stageIndex - 1]}`}>← 上一步</Link>
+            ) : (
+              <span />
+            )}
+            {stageIndex < STAGES.length - 1 ? (
+              <Link className="btn primary" to={`/w/${id}/${STAGES[stageIndex + 1]}`}>
+                下一步 · {STAGE_NAMES[STAGES[stageIndex + 1]]} →
+              </Link>
+            ) : (
+              <span />
+            )}
+          </footer>
+        </main>
+
+        <ChatPanel stage={stage} />
+      </div>
+    </ChatProvider>
   );
 }
 

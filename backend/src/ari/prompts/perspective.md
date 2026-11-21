@@ -9,6 +9,9 @@
 已有视角：
 {perspectives_json}
 
+此前对话（如无则忽略）：
+{history}
+
 用户补充：
 {question}
 

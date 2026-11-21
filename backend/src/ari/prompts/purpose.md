@@ -3,6 +3,9 @@
 当前目的：
 {purpose}
 
+此前对话（如无则忽略）：
+{history}
+
 用户补充：
 {question}
 

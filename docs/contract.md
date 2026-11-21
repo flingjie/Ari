@@ -52,11 +52,16 @@
 | POST `/` | `{template}`（空或 `tutorial`） | `{id, revision, snapshot}` |
 | GET `/{id}` | — | `{id, revision, snapshot, proposals[]}` |
 | PATCH `/{id}` | `{request_id, base_revision, operations[]}` | `{revision, snapshot}` |
-| POST `/{id}/messages` | `{request_id, stage, question, base_revision}` | `{reply, proposal_id, revision}` |
+| POST `/{id}/messages` | `{request_id, stage, question, base_revision, piece_id?}` | `{reply, proposal_id, revision, proposal?}` |
+| GET `/{id}/messages` | `?limit=30&before=<cursor>` | `{messages[], next_before?}`（页面内正序） |
 | POST `/{id}/proposals/{pid}/resolve` | `{request_id, base_revision, action, operations?}` | `{revision, snapshot, status}` |
 | GET `/{id}/export` | `?revision&perspective_id&format=outline\|table` | `{revision, format, content}` |
 
 `action` ∈ accept / edit / ignore。`edit` 需携带 `operations`（改写后的变更集）。
+
+多轮上下文：发送时服务端读同工作区最近 6 轮已完成问答注入提示词；`piece_id` 引用须属于该工作区且存在于当前快照。
+
+旧提案：accept/edit 要求提案自身 `base_revision` 与当前 `revision` 一致，否则 409（`reason="proposal_stale"`）；ignore 对过期提案仍允许。重复 resolve 按 `request_id` 幂等返回原结果。
 
 ## 导出格式
 

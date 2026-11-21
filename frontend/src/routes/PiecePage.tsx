@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
 import "../vendor/jsmind.js";
 import { useWorkspace } from "../store/workspace";
+import { useChat } from "../store/chat";
 import { editEventToOperation, piecesToNodeArray } from "../lib/adapter";
 import { newId } from "../lib/types";
-import { StageAssistant } from "../components/StageAssistant";
 
 function countSubtree(node: any): number {
   let count = 0;
@@ -15,11 +15,20 @@ function countSubtree(node: any): number {
   return count;
 }
 
+interface JsMindEvent {
+  evt: string;
+  data: unknown[];
+  node?: string;
+}
+
 export default function PiecePage() {
-  const { snapshot, mutate } = useWorkspace();
+  const { snapshot, mutate, remoteRevision } = useWorkspace();
+  const { setSelectedPieceId } = useChat();
   const containerRef = useRef<HTMLDivElement>(null);
   const jmRef = useRef<any>(null);
+  const suppressEditRef = useRef(false);
 
+  // 创建 jsMind 实例（仅一次）。
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !snapshot) return;
@@ -36,10 +45,13 @@ export default function PiecePage() {
       format: "node_array",
       data: piecesToNodeArray(snapshot),
     });
-    jm.add_event_listener((type: number, data: { evt: string; data: unknown[] }) => {
+    jm.add_event_listener((type: number, data: JsMindEvent) => {
       if (type === jsMind.event_type.edit) {
+        if (suppressEditRef.current) return;
         const op = editEventToOperation(data.evt, data.data);
         if (op) void mutate([op]);
+      } else if (type === jsMind.event_type.select) {
+        setSelectedPieceId(data.node ?? null);
       }
     });
     jmRef.current = jm;
@@ -49,6 +61,33 @@ export default function PiecePage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 远端快照更新（提案采纳 / 重新加载）时重绘导图；本地编辑不触发。
+  useEffect(() => {
+    const jm = jmRef.current;
+    if (!jm || !snapshot) return;
+    const prev = jm.get_selected_node();
+    const prevId = prev ? prev.id : null;
+    suppressEditRef.current = true;
+    try {
+      jm.show({
+        meta: { name: "ari" },
+        format: "node_array",
+        data: piecesToNodeArray(snapshot),
+      });
+    } finally {
+      suppressEditRef.current = false;
+    }
+    if (prevId && snapshot.pieces.some((p) => p.id === prevId)) {
+      jm.select_node(prevId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteRevision]);
+
+  // 离开片段页时清除引用。
+  useEffect(() => {
+    return () => setSelectedPieceId(null);
+  }, [setSelectedPieceId]);
 
   const selected = () => {
     const jm = jmRef.current;
@@ -106,7 +145,6 @@ export default function PiecePage() {
         <button onClick={deleteBranch}>删除分支</button>
         <button onClick={backToCenter}>回到中心</button>
       </div>
-      <StageAssistant stage="piece" />
     </>
   );
 }

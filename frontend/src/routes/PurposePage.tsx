@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../store/workspace";
-import { StageAssistant } from "../components/StageAssistant";
 
 export default function PurposePage() {
   const { snapshot, mutate } = useWorkspace();
@@ -26,7 +25,6 @@ export default function PurposePage() {
         onChange={(e) => setText(e.target.value)}
         onBlur={commit}
       />
-      <StageAssistant stage="purpose" />
     </>
   );
 }

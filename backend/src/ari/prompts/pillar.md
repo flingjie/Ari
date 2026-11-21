@@ -11,6 +11,9 @@
 当前视角归属（piece_id → pillar_id，null 表示待归类）：
 {assignments_json}
 
+此前对话（如无则忽略）：
+{history}
+
 用户补充：
 {question}
 
