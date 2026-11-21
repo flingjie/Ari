@@ -9,6 +9,7 @@ export interface Piece {
   order: number;
   source: string;
   kind: PieceKind;
+  side: "left" | "right" | null;
 }
 
 export interface Perspective {
@@ -77,6 +78,13 @@ export type Operation =
     }
   | { type: "update_piece"; piece_id: string; text: string }
   | { type: "remove_piece"; piece_id: string }
+  | {
+      type: "move_piece";
+      piece_id: string;
+      parent_id: string;
+      before_piece_id: string | null;
+      side?: "left" | "right" | null;
+    }
   | { type: "add_perspective"; id: string; name: string; reason?: string }
   | {
       type: "update_perspective";

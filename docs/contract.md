@@ -16,7 +16,7 @@
   "purpose": "",
   "root_id": "root",
   "active_perspective_id": null,
-  "pieces": [{"id", "parent_id", "text", "order", "source", "kind"}],
+  "pieces": [{"id", "parent_id", "text", "order", "source", "kind", "side?"}],
   "perspectives": [{"id", "name", "reason"}],
   "pillars": [{"id", "perspective_id", "name", "order"}],
   "assignments": [{"perspective_id", "piece_id", "pillar_id"}]
@@ -25,6 +25,7 @@
 
 - `pieces.parent_id` 树表示采集上下文；根节点 `parent_id` 为 null。
 - `pieces.kind` ∈ quote（用户原话）/ inferred（AI 推测）。
+- `pieces.side` ∈ left / right / null；仅主题直接子节点有效，标记双侧布局下的分侧；null 由前端按 jsMind 自动布局规则推导。
 - `assignments.pillar_id` 为 null 即「待归类」；`(perspective_id, piece_id)` 至多一条。
 
 ## 领域操作（PATCH 与 AI 提案共用）
@@ -35,6 +36,7 @@
 | add_piece | id, parent_id, text, order?, source?, kind? | 新增片段 |
 | update_piece | piece_id, text | 改写片段/主题 |
 | remove_piece | piece_id | 删子树 + 各视角归属；禁删根 |
+| move_piece | piece_id, parent_id, before_piece_id?, side? | 重挂父节点 + 同级排序；before 为 null 追加末尾；禁根/自挂/环/锚点非法；side 仅主题直接子节点 |
 | add_perspective | id, name, reason? | 新增视角 |
 | update_perspective | id, name?, reason? | 改名/理由 |
 | set_active_perspective | id | 选中视角 |

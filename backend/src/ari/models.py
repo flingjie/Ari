@@ -14,6 +14,9 @@ from pydantic import BaseModel, Field
 # 片段来源类型：quote=用户原话；inferred=AI 推测（可区分、可追溯）。
 PieceKind = Literal["quote", "inferred"]
 
+# 主题直接子节点在双侧布局下的分侧。
+PieceSide = Literal["left", "right"]
+
 
 class Piece(BaseModel):
     """导图节点。根节点 ``parent_id`` 为空，仅作主题（可独立命名）。"""
@@ -24,6 +27,7 @@ class Piece(BaseModel):
     order: int = 0
     source: str = ""  # 来源标注（用户原话出处）
     kind: PieceKind = "quote"
+    side: PieceSide | None = None  # 仅主题直接子节点有效；旧快照缺省为 None
 
 
 class Perspective(BaseModel):

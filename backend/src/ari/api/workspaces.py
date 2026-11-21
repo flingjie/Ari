@@ -75,6 +75,8 @@ def _collect_piece_refs(ops: list[Operation]) -> list[str]:
             ids.add(op.piece_id)
         if hasattr(op, "parent_id"):
             ids.add(op.parent_id)
+        if hasattr(op, "before_piece_id") and op.before_piece_id is not None:
+            ids.add(op.before_piece_id)
     return sorted(ids)
 
 

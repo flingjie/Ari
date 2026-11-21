@@ -52,6 +52,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const revisionRef = useRef(0);
   const queueRef = useRef<Promise<unknown>>(Promise.resolve());
   const lastReqRef = useRef<{ requestId: string; ops: Operation[] } | null>(null);
+  // 每次 load 递增，用于丢弃切换工作区/重载后在途提交的过期结果。
+  const loadEpochRef = useRef(0);
 
   useEffect(() => {
     workspaceIdRef.current = workspaceId;
@@ -64,6 +66,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     // 切换工作区时清空旧提交队列。
     queueRef.current = Promise.resolve();
     lastReqRef.current = null;
+    loadEpochRef.current += 1;
     setLoadState("loading");
     try {
       const ws = await api.get(id);
@@ -84,11 +87,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const run = queueRef.current.then(async () => {
         const id = workspaceIdRef.current;
         if (!id) return false;
+        const epoch = loadEpochRef.current;
         const rid = requestId ?? crypto.randomUUID();
         lastReqRef.current = { requestId: rid, ops };
         setSync({ status: "pending" });
         try {
           const res = await api.patch(id, rid, revisionRef.current, ops);
+          if (epoch !== loadEpochRef.current) return false;
           setSnapshot(res.snapshot);
           setRevision(res.revision);
           revisionRef.current = res.revision;
@@ -96,6 +101,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           setSync({ status: "idle" });
           return true;
         } catch (e) {
+          if (epoch !== loadEpochRef.current) return false;
           if (e instanceof ApiError && e.status === 409) {
             const detail = e.detail as
               | { current_revision?: number; message?: string }

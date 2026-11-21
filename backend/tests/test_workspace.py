@@ -2,7 +2,7 @@
 
 import pytest
 
-from ari.domain.operations import SetPurpose
+from ari.domain.operations import MovePiece, SetPurpose
 from ari.domain.workspace import (
     ConflictError,
     ReceiptConflictError,
@@ -47,3 +47,15 @@ def test_get_workspace_roundtrip(conn, tutorial):
     ws = get_workspace(conn, wid)
     assert ws["revision"] == rev
     assert ws["snapshot"].root_id == snap.root_id
+
+
+def test_move_piece_idempotent_retry(conn, tutorial):
+    wid, rev, _ = tutorial
+    ops = [MovePiece(piece_id="p-star", parent_id="p-reply")]
+    r1, s1 = apply_patch(conn, wid, "req-move", rev, ops)
+    assert r1 == rev + 1
+    assert s1.piece("p-star").parent_id == "p-reply"
+    # 同一 request_id 重试返回原结果（不重复移动）
+    r2, s2 = apply_patch(conn, wid, "req-move", rev, ops)
+    assert r2 == r1
+    assert s2.piece("p-star").parent_id == "p-reply"

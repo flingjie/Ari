@@ -1,8 +1,9 @@
 """领域操作与校验：结构编辑与 AI 提议共用同一组 operation。
 
-无 ``move_piece``（重挂父节点）操作，故不存在环；树的唯一修改是
-add（新叶子）与 remove（整棵子树）。删除分支在一个事务内删除整棵子树
-及各视角中相关归属；禁止删除根节点。
+``move_piece`` 重挂父节点并重排同级顺序，校验根/自挂/环/锚点，
+移动后仍是无环树。树的修改由 add（新叶子）、remove（整棵子树）与
+move（重挂 + 排序）组成；删除分支在一个事务内删除整棵子树及各视角
+中相关归属；禁止删除或移动根节点。
 """
 
 from __future__ import annotations
@@ -11,7 +12,15 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..models import Assignment, Perspective, Piece, PieceKind, Pillar, WorkspaceSnapshot
+from ..models import (
+    Assignment,
+    Perspective,
+    Piece,
+    PieceKind,
+    PieceSide,
+    Pillar,
+    WorkspaceSnapshot,
+)
 
 
 class OperationError(ValueError):
@@ -28,7 +37,7 @@ class AddPiece(BaseModel):
     id: str
     parent_id: str
     text: str
-    order: int = 0
+    order: int | None = None  # None = 追加到同级末尾
     source: str = ""
     kind: PieceKind = "quote"
 
@@ -42,6 +51,14 @@ class UpdatePiece(BaseModel):
 class RemovePiece(BaseModel):
     type: Literal["remove_piece"] = "remove_piece"
     piece_id: str
+
+
+class MovePiece(BaseModel):
+    type: Literal["move_piece"] = "move_piece"
+    piece_id: str
+    parent_id: str  # 新父节点
+    before_piece_id: str | None = None  # 锚点；None = 追加到末尾
+    side: PieceSide | None = None  # 仅父为主题时接受
 
 
 class AddPerspective(BaseModel):
@@ -101,6 +118,7 @@ Operation = Annotated[
         | AddPiece
         | UpdatePiece
         | RemovePiece
+        | MovePiece
         | AddPerspective
         | UpdatePerspective
         | SetActivePerspective
@@ -151,6 +169,34 @@ def _require_unique_id(snapshot: WorkspaceSnapshot, new_id: str, what: str) -> N
         raise OperationError(f"{what} id 重复: {new_id}")
 
 
+def _children_of(snapshot: WorkspaceSnapshot, parent_id: str) -> list[Piece]:
+    """按 ``snapshot.pieces`` 列表顺序返回 parent_id 的直接子节点。"""
+    return [p for p in snapshot.pieces if p.parent_id == parent_id]
+
+
+def _renumber_children(snapshot: WorkspaceSnapshot, parent_id: str) -> None:
+    """按列表顺序把直接子节点的 ``order`` 重写为 0..n-1（稠密）。"""
+    for i, p in enumerate(_children_of(snapshot, parent_id)):
+        p.order = i
+
+
+def _auto_layout_sides(children: list[Piece]) -> dict[str, PieceSide]:
+    """复刻 jsMind 0.8.7 ``calculate_next_child_direction``：右偏平衡 R,R,L,L,R,L,…。
+
+    与前端 ``adapter.ts`` 的 ``autoLayoutSides`` 保持同一条规则，用于旧快照
+    （根直接子节点缺省 ``side``）补齐左右分侧，避免移动重排后其他根分支换侧。
+    """
+    sides: dict[str, PieceSide] = {}
+    total = 0  # right=+1，left=-1
+    count = 0
+    for p in children:
+        side: PieceSide = "left" if (count > 1 and total > 0) else "right"
+        sides[p.id] = side
+        total += 1 if side == "right" else -1
+        count += 1
+    return sides
+
+
 def apply(snapshot: WorkspaceSnapshot, op: Operation) -> None:
     """就地应用单个操作，校验失败抛 OperationError。"""
     if isinstance(op, SetPurpose):
@@ -159,12 +205,17 @@ def apply(snapshot: WorkspaceSnapshot, op: Operation) -> None:
     elif isinstance(op, AddPiece):
         _require_unique_id(snapshot, op.id, "片段")
         _require_piece(snapshot, op.parent_id)
+        order = op.order
+        if order is None:
+            # 未传 order 时追加到同级末尾，避免默认 0 跑到兄弟前面。
+            siblings = _children_of(snapshot, op.parent_id)
+            order = max((p.order for p in siblings), default=-1) + 1
         snapshot.pieces.append(
             Piece(
                 id=op.id,
                 parent_id=op.parent_id,
                 text=op.text,
-                order=op.order,
+                order=order,
                 source=op.source,
                 kind=op.kind,
             )
@@ -183,6 +234,72 @@ def apply(snapshot: WorkspaceSnapshot, op: Operation) -> None:
         doomed = _descendants(snapshot, op.piece_id)
         snapshot.pieces = [p for p in snapshot.pieces if p.id not in doomed]
         snapshot.assignments = [a for a in snapshot.assignments if a.piece_id not in doomed]
+
+    elif isinstance(op, MovePiece):
+        if op.piece_id == snapshot.root_id:
+            raise OperationError("禁止移动根节点")
+        _require_piece(snapshot, op.piece_id)
+        _require_piece(snapshot, op.parent_id)
+        if op.parent_id == op.piece_id:
+            raise OperationError("不能把片段挂到自身")
+        if op.parent_id in _descendants(snapshot, op.piece_id):
+            raise OperationError("不能把片段挂到自身后代")
+        if op.before_piece_id is not None:
+            if op.before_piece_id == op.piece_id:
+                raise OperationError("锚点不能是自身")
+            anchor = snapshot.piece(op.before_piece_id)
+            if anchor is None:
+                raise OperationError(f"锚点不存在: {op.before_piece_id}")
+            if anchor.parent_id != op.parent_id:
+                raise OperationError("锚点不属于目标父节点")
+        if op.side is not None and op.parent_id != snapshot.root_id:
+            raise OperationError("side 仅主题直接子节点可用")
+
+        piece = snapshot.piece(op.piece_id)
+        assert piece is not None
+        old_parent_id = piece.parent_id
+
+        # 首次结构写入前，用自动布局规则为旧快照的根直接子节点补齐 side，
+        # 避免移动重排后其他根分支换侧。
+        if old_parent_id == snapshot.root_id or op.parent_id == snapshot.root_id:
+            index_of = {p.id: i for i, p in enumerate(snapshot.pieces)}
+            root_children = sorted(
+                _children_of(snapshot, snapshot.root_id),
+                key=lambda p: (p.order, index_of[p.id]),
+            )
+            for cid, side in _auto_layout_sides(root_children).items():
+                c = snapshot.piece(cid)
+                assert c is not None
+                if c.side is None:
+                    c.side = side
+
+        # 物理重排列表：先移除，再按锚点（或末尾）插入，最后重排 order。
+        snapshot.pieces = [p for p in snapshot.pieces if p.id != op.piece_id]
+        piece.parent_id = op.parent_id
+        if op.parent_id == snapshot.root_id:
+            # 主题直接子节点：显式 side 覆盖，否则保留 backfill 或既有 side。
+            if op.side is not None:
+                piece.side = op.side
+        else:
+            piece.side = None
+
+        if op.before_piece_id is not None:
+            idx = next(
+                i for i, p in enumerate(snapshot.pieces) if p.id == op.before_piece_id
+            )
+        else:
+            children = _children_of(snapshot, op.parent_id)
+            if children:
+                last_id = children[-1].id
+                idx = next(i for i, p in enumerate(snapshot.pieces) if p.id == last_id) + 1
+            else:
+                idx = len(snapshot.pieces)
+        snapshot.pieces.insert(idx, piece)
+
+        if old_parent_id is not None:
+            _renumber_children(snapshot, old_parent_id)
+        if old_parent_id != op.parent_id:
+            _renumber_children(snapshot, op.parent_id)
 
     elif isinstance(op, AddPerspective):
         _require_unique_id(snapshot, op.id, "视角")
