@@ -934,3 +934,9 @@ a:focus-visible {
   font-size: 14px;
   color: #5a6a5e;
 }
+
+.map-hint {
+  font-size: 13px;
+  color: #8a8f86;
+  margin: 8px 0 0;
+}

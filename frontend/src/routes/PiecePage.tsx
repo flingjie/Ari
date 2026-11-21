@@ -37,7 +37,9 @@ export default function PiecePage() {
   const resync = useCallback((snap: Snapshot | null) => {
     const jm = jmRef.current;
     if (!jm || !snap) return;
-    const selected = jm.get_selected_node();
+    // 首次 show 前 mind 未初始化，get_root 会抛错，此时跳过状态保存。
+    const root = jm.mind ? jm.get_root() : null;
+    const selected = jm.mind ? jm.get_selected_node() : null;
     const selectedId: string | null = selected ? selected.id : null;
     const collapsed: string[] = [];
     const collect = (node: any) => {
@@ -47,7 +49,7 @@ export default function PiecePage() {
       }
       for (const child of node.children ?? []) collect(child);
     };
-    collect(jm.get_root());
+    if (root) collect(root);
 
     suppressEditRef.current = true;
     try {
@@ -79,7 +81,20 @@ export default function PiecePage() {
       editable: true,
       support_html: false,
       mode: window.innerWidth < 600 ? "side" : "full",
-      shortcut: { enable: false },
+      shortcut: {
+        enable: true,
+        mapping: {
+          addchild: [9, 45], // Tab / Insert：添加子片段
+          addbrother: 13, // Enter：添加同级片段
+          editnode: 113, // F2：编辑
+          delnode: [46, 8], // Delete / Backspace：删除
+          toggle: 32, // Space：折叠/展开
+          left: 37,
+          up: 38,
+          right: 39,
+          down: 40,
+        },
+      },
     });
     jm.add_event_listener((type: number, data: JsMindEvent) => {
       if (type === jsMind.event_type.edit) {
@@ -103,14 +118,16 @@ export default function PiecePage() {
     if (jmRef.current) resync(snapshot);
   }, [snapshot, resync]);
 
-  // 提交中锁结构编辑；失败/冲突时用最后确认快照撤销本地移动。
+  // 提交中锁结构编辑（含键盘快捷键与拖拽）；失败/冲突时用最后确认快照撤销本地移动。
   useEffect(() => {
     const jm = jmRef.current;
     if (!jm) return;
     if (sync.status === "pending") {
       jm.disable_edit();
+      jm.shortcut.disable_shortcut();
     } else {
       jm.enable_edit();
+      jm.shortcut.enable_shortcut();
       if (sync.status === "error" || sync.status === "conflict") {
         if (snapshotRef.current) resync(snapshotRef.current);
       }
@@ -186,6 +203,9 @@ export default function PiecePage() {
         </button>
         <button onClick={backToCenter}>回到中心</button>
       </div>
+      <p className="map-hint">
+        双击或 F2 编辑 · Tab 加子片段 · Enter 加同级 · Delete 删除 · 拖拽移动
+      </p>
     </>
   );
 }
