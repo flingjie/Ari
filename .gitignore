@@ -26,6 +26,8 @@ frontend/dist/
 var/
 tmp/
 .DS_Store
+.superpowers/
+.worktrees/
 
 # TypeScript build info
 *.tsbuildinfo
