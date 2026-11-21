@@ -166,10 +166,11 @@ export function PillarChartPanel({
     ready &&
     hasConflictShape &&
     prefs.manualChart == null &&
-    prefs.dismissedConflictAtRevision !== revision;
+    prefs.dismissedConflictAtRevision === null;
 
   // 用户点过「继续编辑现有」后（任意 revision），保持停留在现有结构，
-  // 避免保存导致 revision 前进时编辑器被推荐图形顶掉；banner 仅在 revision 变化后再次提示。
+  // 避免保存导致 revision 前进时编辑器被推荐图形顶掉；
+  // 已忽略后 revision 前进不再重复提示，仅「重新推荐」清除忽略状态后才可能再次出现 banner。
   const keepExisting = hasConflictShape && prefs.dismissedConflictAtRevision !== null;
 
   const active = resolveActiveChart({
@@ -198,7 +199,7 @@ export function PillarChartPanel({
 
   function rerecommend() {
     clearPerspectiveCache(workspaceId, perspectiveId);
-    updatePrefs({ manualChart: null });
+    updatePrefs({ manualChart: null, dismissedConflictAtRevision: null });
     onClearEditorParam?.();
     // 不清 result：重新拉取期间继续展示旧结果，避免编辑器被骨架顶掉。
     setRefreshNonce((n) => n + 1);

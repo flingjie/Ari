@@ -975,3 +975,21 @@ a:focus-visible {
   padding: 2px 8px;
   font-size: 13px;
 }
+
+.chart-conflict-banner {
+  background: #fff8e6;
+  border: 1px solid #e0cf9f;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.chart-conflict-banner p {
+  margin: 0 0 8px;
+}
+
+.chart-conflict-banner button {
+  padding: 2px 8px;
+  font-size: 13px;
+}
