@@ -1,61 +1,34 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useWorkspace } from "../store/workspace";
-import { newId, type Piece, type Pillar } from "../lib/types";
-
-function PillarName({ name, onRename }: { name: string; onRename: (v: string) => void }) {
-  const [value, setValue] = useState(name);
-  useEffect(() => setValue(name), [name]);
-  return (
-    <input
-      className="groupname"
-      value={value}
-      aria-label="支柱名"
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => {
-        const v = value.trim();
-        if (v && v !== name) onRename(v);
-      }}
-    />
-  );
-}
-
-function PieceRow({
-  piece,
-  pillars,
-  pillarId,
-  onMove,
-}: {
-  piece: Piece;
-  pillars: Pillar[];
-  pillarId: string | null;
-  onMove: (pieceId: string, pillarId: string | null) => void;
-}) {
-  return (
-    <div className="item">
-      <span>{piece.text}</span>
-      <select
-        aria-label={`移动片段 ${piece.text}`}
-        value={pillarId ?? ""}
-        onChange={(e) => onMove(piece.id, e.target.value || null)}
-      >
-        <option value="">待归类</option>
-        {pillars.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
+import { useGroupedView } from "../lib/useGroupedView";
+import { newId } from "../lib/types";
+import { PillarBoard, type CardOp } from "../components/PillarBoard";
 
 export default function PillarPage() {
-  const { snapshot, mutate, workspaceId } = useWorkspace();
+  const { snapshot, mutate, load, workspaceId, revision } = useWorkspace();
+  const [pending, setPending] = useState<Record<string, CardOp>>({});
+  const [failed, setFailed] = useState<Record<string, CardOp>>({});
+  const activeRef = useRef<string | null>(null);
+
+  const activeId = snapshot?.active_perspective_id ?? null;
+
+  useEffect(() => {
+    activeRef.current = activeId;
+    setPending({});
+    setFailed({});
+  }, [activeId]);
+
+  const { view, status, error } = useGroupedView(
+    workspaceId,
+    activeId,
+    revision,
+    activeId !== null,
+  );
+
   if (!snapshot) return null;
 
-  const active = snapshot.active_perspective_id;
-  if (!active) {
+  if (!activeId) {
     return (
       <div className="card">
         <p>还没有选择视角。</p>
@@ -65,23 +38,18 @@ export default function PillarPage() {
       </div>
     );
   }
-  // 闭包内 TS 不保留收窄，这里用显式 string 固定类型。
-  const activeId: string = active;
 
-  const pillars = snapshot.pillars
-    .filter((p) => p.perspective_id === active)
-    .sort((a, b) => a.order - b.order);
-  const pieces = snapshot.pieces
-    .filter((p) => p.id !== snapshot.root_id)
-    .sort((a, b) => a.order - b.order);
-  const assign = new Map(
-    snapshot.assignments
-      .filter((a) => a.perspective_id === active)
-      .map((a) => [a.piece_id, a.pillar_id]),
-  );
+  // 收窄后的当前视角 ID（闭包内固定为 string）。
+  const currentActiveId: string = activeId;
 
-  const members = (pillarId: string | null) =>
-    pieces.filter((p) => (assign.get(p.id) ?? null) === pillarId);
+  // 已确认归属（用于拖到同列 no-op）。
+  const confirmedMap: Record<string, string | null> = {};
+  if (view) {
+    for (const p of view.pillars) {
+      for (const pc of p.pieces) confirmedMap[pc.id] = p.id;
+    }
+    for (const pc of view.unassigned) confirmedMap[pc.id] = null;
+  }
 
   function renamePillar(id: string, name: string) {
     void mutate([{ type: "rename_pillar", id, name }]);
@@ -90,52 +58,84 @@ export default function PillarPage() {
     const name = window.prompt("支柱名称");
     if (name && name.trim()) {
       void mutate([
-        { type: "add_pillar", id: newId(), perspective_id: activeId, name: name.trim() },
+        { type: "add_pillar", id: newId(), perspective_id: currentActiveId, name: name.trim() },
       ]);
     }
   }
-  function movePiece(pieceId: string, pillarId: string | null) {
-    void mutate([
-      {
-        type: "assign_piece",
-        perspective_id: activeId,
-        piece_id: pieceId,
-        pillar_id: pillarId,
-      },
-    ]);
+
+  function commitAssignment(pieceId: string, pillarId: string | null) {
+    if (pending[pieceId]) return; // 每张卡一次只允许一个在途请求
+    if (confirmedMap[pieceId] === pillarId) return; // 拖到同列 no-op
+    const perspectiveId = currentActiveId; // 绑定拖拽发生时的视角
+    const requestId = crypto.randomUUID();
+    setPending((prev) => ({ ...prev, [pieceId]: { perspectiveId, pillarId, requestId } }));
+    setFailed((prev) => {
+      const next = { ...prev };
+      delete next[pieceId];
+      return next;
+    });
+    void mutate(
+      [{ type: "assign_piece", perspective_id: perspectiveId, piece_id: pieceId, pillar_id: pillarId }],
+      requestId,
+    ).then((ok) => {
+      if (activeRef.current !== perspectiveId) return; // 已切视角，丢弃过期更新
+      setPending((prev) => {
+        const next = { ...prev };
+        delete next[pieceId];
+        return next;
+      });
+      if (!ok) {
+        setFailed((prev) => ({ ...prev, [pieceId]: { perspectiveId, pillarId, requestId } }));
+      }
+    });
   }
 
-  // 支柱顺序 + 最后的「待归类」（null）。
-  const columns: (string | null)[] = [...pillars.map((p) => p.id), null];
+  function retryCard(pieceId: string) {
+    const f = failed[pieceId];
+    if (!f) return;
+    setFailed((prev) => {
+      const next = { ...prev };
+      delete next[pieceId];
+      return next;
+    });
+    setPending((prev) => ({ ...prev, [pieceId]: f }));
+    void mutate(
+      [{ type: "assign_piece", perspective_id: f.perspectiveId, piece_id: pieceId, pillar_id: f.pillarId }],
+      f.requestId,
+    ).then((ok) => {
+      if (activeRef.current !== f.perspectiveId) return;
+      setPending((prev) => {
+        const next = { ...prev };
+        delete next[pieceId];
+        return next;
+      });
+      if (!ok) setFailed((prev) => ({ ...prev, [pieceId]: f }));
+    });
+  }
+
+  if (status === "loading") {
+    return <div className="card">加载中…</div>;
+  }
+  if (status === "error" || !view) {
+    return (
+      <div className="card">
+        <p>{error ?? "加载分组失败，请重试"}</p>
+        <button onClick={() => load(workspaceId!)}>重新加载</button>
+      </div>
+    );
+  }
 
   return (
     <div>
-      {columns.map((pillarId) => {
-        const name = pillarId ? pillars.find((p) => p.id === pillarId)!.name : "待归类";
-        const items = members(pillarId);
-        return (
-          <section key={pillarId ?? "__unassigned"} className="card">
-            {pillarId ? (
-              <PillarName name={name} onRename={(v) => renamePillar(pillarId, v)} />
-            ) : (
-              <b>待归类</b>
-            )}
-            {items.length === 0 ? (
-              <p>暂无材料</p>
-            ) : (
-              items.map((p) => (
-                <PieceRow
-                  key={p.id}
-                  piece={p}
-                  pillars={pillars}
-                  pillarId={assign.get(p.id) ?? null}
-                  onMove={movePiece}
-                />
-              ))
-            )}
-          </section>
-        );
-      })}
+      <PillarBoard
+        key={currentActiveId}
+        view={view}
+        onMove={commitAssignment}
+        onRetryCard={retryCard}
+        onRenamePillar={renamePillar}
+        pending={pending}
+        failed={failed}
+      />
       <button onClick={addPillar}>＋ 新支柱</button>
     </div>
   );

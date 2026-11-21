@@ -41,6 +41,31 @@ export interface Snapshot {
   assignments: Assignment[];
 }
 
+// 分组结果（与后端 domain/grouping.py 的 GroupedView 对齐）。
+export interface GroupedPiece {
+  id: string;
+  text: string;
+}
+
+export interface GroupedPillar {
+  id: string;
+  name: string;
+  order: number;
+  pieces: GroupedPiece[];
+}
+
+export interface GroupedPerspective {
+  id: string;
+  name: string;
+}
+
+export interface GroupedView {
+  purpose: string;
+  perspective: GroupedPerspective;
+  pillars: GroupedPillar[];
+  unassigned: GroupedPiece[];
+}
+
 export type Stage =
   | "purpose"
   | "piece"

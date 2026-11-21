@@ -389,3 +389,195 @@ a:focus-visible {
     border-radius: 0;
   }
 }
+
+/* —— 视角卡片对照（PR2） —— */
+
+.perspective-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+  margin: 12px 0;
+}
+
+.perspective-card {
+  background: #fffef9;
+  border: 1px solid #d2d7cb;
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.perspective-card[aria-pressed="true"] {
+  border-color: #28503a;
+  box-shadow: 0 0 0 2px #28503a inset;
+}
+
+.perspective-card__main {
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.perspective-card__reason {
+  display: block;
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.perspective-preview {
+  font-size: 14px;
+  border-top: 1px solid #e4e7dd;
+  padding-top: 8px;
+}
+
+.perspective-preview ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.perspective-preview__samples {
+  margin: 8px 0 0;
+}
+
+.perspective-preview__error {
+  color: #a33;
+}
+
+.perspective-grid__add {
+  align-self: start;
+}
+
+.perspective-empty p {
+  margin: 6px 0;
+}
+
+/* —— 支柱拖拽看板（PR3） —— */
+
+.board {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.board-column {
+  flex: 0 0 min(260px, 72vw);
+  background: #fffef9;
+  border: 1px solid #d2d7cb;
+  border-radius: 14px;
+  padding: 14px;
+  min-height: 140px;
+}
+
+.board-column[data-over="true"] {
+  border-color: #28503a;
+  background: #eef4ea;
+}
+
+.board-empty {
+  font-size: 14px;
+  color: #777;
+}
+
+.piece-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid #dde2d7;
+  border-radius: 10px;
+  padding: 10px;
+  margin: 8px 0;
+  background: #fff;
+  cursor: grab;
+}
+
+.piece-card[data-pending="true"] {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.piece-pending {
+  font-size: 13px;
+  color: #a5792c;
+}
+
+.piece-failed {
+  font-size: 13px;
+  color: #a33;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* —— 表达分组图（PR4） —— */
+
+.graph {
+  margin: 12px 0;
+}
+
+.graph-header {
+  border-bottom: 1px solid #d2d7cb;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+}
+
+.graph-header h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.graph-perspective {
+  font-size: 14px;
+  color: #5a6a5e;
+}
+
+.graph-body {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  overflow-x: auto;
+  padding-top: 26px;
+}
+
+.graph-links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 24px;
+}
+
+.graph-links line {
+  stroke: #9db3a5;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.graph-column {
+  background: #fffef9;
+  border: 1px solid #d2d7cb;
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.graph-column-head {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.graph-card {
+  border: 1px solid #dde2d7;
+  border-radius: 10px;
+  padding: 10px;
+  margin: 8px 0;
+  background: #fff;
+}
+
+.graph-empty {
+  font-size: 14px;
+  color: #777;
+}

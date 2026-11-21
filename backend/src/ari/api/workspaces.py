@@ -15,6 +15,7 @@ from ..agents.stage import (
     validate_operations,
 )
 from ..domain.export import ExportError, render
+from ..domain.grouping import GroupedViewError, build_grouped_view
 from ..domain.operations import Operation, OperationError
 from ..domain.proposals import (
     ProposalResolvedError,
@@ -40,6 +41,8 @@ from .schemas import (
     CreateRequest,
     ExportQuery,
     ExportResponse,
+    GroupedViewQuery,
+    GroupedViewResponse,
     MessagePageResponse,
     MessageRequest,
     MessageResponse,
@@ -292,3 +295,25 @@ def export(
     except ExportError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     return ExportResponse(revision=query.revision, format=query.format, content=content)
+
+
+@router.get("/{workspace_id}/grouped-view", response_model=GroupedViewResponse)
+def grouped_view(
+    workspace_id: str, query: GroupedViewQuery = Depends(), conn=Depends(get_conn)
+) -> GroupedViewResponse:
+    ws = get_workspace(conn, workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="工作区不存在")
+    if ws["revision"] != query.revision:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "版本已变，请刷新后再预览", "current_revision": ws["revision"]},
+        )
+    try:
+        view = build_grouped_view(ws["snapshot"], query.perspective_id)
+    except GroupedViewError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": str(exc), "recovery": exc.recovery},
+        ) from None
+    return GroupedViewResponse(revision=query.revision, view=view)

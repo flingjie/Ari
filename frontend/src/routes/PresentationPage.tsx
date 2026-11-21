@@ -2,17 +2,32 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { useWorkspace } from "../store/workspace";
+import { useGroupedView } from "../lib/useGroupedView";
+import { GroupedViewGraph } from "../components/GroupedViewGraph";
+
+type PresentationFormat = "outline" | "table" | "graph";
 
 export default function PresentationPage() {
   const { snapshot, revision, workspaceId } = useWorkspace();
-  const [format, setFormat] = useState<"outline" | "table">("outline");
+  const [format, setFormat] = useState<PresentationFormat>("outline");
   const [content, setContent] = useState("");
   const [previewRevision, setPreviewRevision] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   const perspectiveId = snapshot?.active_perspective_id ?? null;
+  const grouped = useGroupedView(
+    workspaceId,
+    perspectiveId,
+    revision,
+    format === "graph",
+  );
 
   useEffect(() => {
+    if (format === "graph") {
+      setContent("");
+      setError("");
+      return;
+    }
     if (!snapshot || !workspaceId || !perspectiveId) {
       setContent("");
       setError("");
@@ -69,21 +84,43 @@ export default function PresentationPage() {
         <select
           aria-label="表达形式"
           value={format}
-          onChange={(e) => setFormat(e.target.value as "outline" | "table")}
+          onChange={(e) => setFormat(e.target.value as PresentationFormat)}
         >
           <option value="outline">提纲</option>
           <option value="table">Markdown 表格</option>
+          <option value="graph">分组图</option>
         </select>
         <small>
-          预览版本 r{previewRevision ?? revision}
-          {previewRevision !== null && previewRevision !== revision ? "（待刷新）" : ""}
+          预览版本 r{format === "graph" ? revision : (previewRevision ?? revision)}
+          {format !== "graph" && previewRevision !== null && previewRevision !== revision
+            ? "（待刷新）"
+            : ""}
         </small>
-        <button className="primary" onClick={download} disabled={!content}>
+        <button
+          className="primary"
+          onClick={download}
+          disabled={!content || format === "graph"}
+        >
           下载 Markdown
         </button>
       </div>
-      {error ? <p className="sync-status error">{error}</p> : null}
-      <pre className="card">{content}</pre>
+
+      {format === "graph" ? (
+        <>
+          {grouped.status === "loading" ? <div className="card">加载中…</div> : null}
+          {grouped.status === "error" ? (
+            <p className="sync-status error">{grouped.error}</p>
+          ) : null}
+          {grouped.status === "ready" && grouped.view ? (
+            <GroupedViewGraph view={grouped.view} />
+          ) : null}
+        </>
+      ) : (
+        <>
+          {error ? <p className="sync-status error">{error}</p> : null}
+          <pre className="card">{content}</pre>
+        </>
+      )}
     </div>
   );
 }

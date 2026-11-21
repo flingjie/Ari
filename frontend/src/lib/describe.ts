@@ -32,7 +32,9 @@ export function describeChangeSet(ops: Operation[], snapshot: Snapshot): string[
       case "move_piece":
         return `移动片段「${pieceText(snapshot, op.piece_id)}」`;
       case "add_perspective":
-        return `新增视角「${op.name}」`;
+        return op.reason
+          ? `新增视角「${op.name}」：${op.reason}`
+          : `新增视角「${op.name}」`;
       case "update_perspective":
         return `修改视角「${perspectiveName(snapshot, op.id)}」`;
       case "set_active_perspective":

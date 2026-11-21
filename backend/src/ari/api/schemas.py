@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ..domain.operations import Operation
+from ..domain.grouping import GroupedView
 from ..models import WorkspaceSnapshot
 
 Stage = Literal["purpose", "piece", "perspective", "pillar", "presentation"]
@@ -101,3 +102,13 @@ class ExportResponse(BaseModel):
     revision: int
     format: str
     content: str
+
+
+class GroupedViewQuery(BaseModel):
+    revision: int
+    perspective_id: str
+
+
+class GroupedViewResponse(BaseModel):
+    revision: int
+    view: GroupedView

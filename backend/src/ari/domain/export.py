@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 
 from ..models import WorkspaceSnapshot
+from .grouping import GroupedViewError, build_grouped_view
 
 
 class ExportError(ValueError):
@@ -27,46 +28,29 @@ def _safe_table(text: str) -> str:
 
 def render(snapshot: WorkspaceSnapshot, perspective_id: str, fmt: str) -> str:
     """按指定视角渲染 Markdown。``fmt`` 为 ``outline`` 或 ``table``。"""
-    perspective = snapshot.perspective(perspective_id)
-    if perspective is None:
-        raise ExportError(f"视角不存在: {perspective_id}")
     if fmt not in ("outline", "table"):
         raise ExportError(f"不支持的格式: {fmt}")
+    try:
+        view = build_grouped_view(snapshot, perspective_id)
+    except GroupedViewError as exc:
+        raise ExportError(str(exc)) from None
 
     table = fmt == "table"
-    rows: list[str] = [f"# {snapshot.purpose}", "", f"视角 · {perspective.name}", ""]
+    rows: list[str] = [f"# {view.purpose}", "", f"视角 · {view.perspective.name}", ""]
     if table:
         rows += ["| 支柱 | 材料 |", "| --- | --- |"]
 
-    # 非根片段按 order 排序（保持采集顺序）。
-    pieces = sorted(
-        (p for p in snapshot.pieces if p.id != snapshot.root_id),
-        key=lambda p: (p.order, p.id),
-    )
-    pillars = sorted(
-        (p for p in snapshot.pillars if p.perspective_id == perspective_id),
-        key=lambda p: (p.order, p.id),
-    )
-    assign = {
-        a.piece_id: a.pillar_id
-        for a in snapshot.assignments
-        if a.perspective_id == perspective_id
-    }
-
-    def members(pillar_id: str | None) -> list[str]:
-        return [p.text for p in pieces if assign.get(p.id) == pillar_id]
-
-    # 支柱顺序 + 最后的「待归类」（None）。
-    for pillar in [*pillars, None]:
-        group = pillar.name if pillar is not None else "待归类"
-        items = members(pillar.id if pillar is not None else None)
+    # 支柱顺序 + 最后的「待归类」（unassigned）。
+    groups = [(p.name, p.pieces) for p in view.pillars] + [("待归类", view.unassigned)]
+    for group_name, group_pieces in groups:
+        items = [p.text for p in group_pieces]
         if not items:
             items = ["暂无材料"]
         if table:
             for item in items:
-                rows.append(f"| {_safe_table(group)} | {_safe_table(item)} |")
+                rows.append(f"| {_safe_table(group_name)} | {_safe_table(item)} |")
         else:
-            rows.append(f"## {_collapse_newlines(group)}")
+            rows.append(f"## {_collapse_newlines(group_name)}")
             rows.extend(f"- {_collapse_newlines(item)}" for item in items)
             rows.append("")
 

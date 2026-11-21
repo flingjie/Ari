@@ -1,8 +1,11 @@
 import { useWorkspace } from "../store/workspace";
+import { useChat } from "../store/chat";
 import { newId } from "../lib/types";
+import { PerspectiveCard } from "../components/PerspectiveCard";
 
 export default function PerspectivePage() {
-  const { snapshot, mutate } = useWorkspace();
+  const { snapshot, mutate, workspaceId, revision } = useWorkspace();
+  const chat = useChat();
   if (!snapshot) return null;
 
   const active = snapshot.active_perspective_id;
@@ -20,20 +23,40 @@ export default function PerspectivePage() {
     ]);
   }
 
+  function suggestWithAI() {
+    chat.setPanelOpen(true);
+    chat.setDraft("请从两个有实质区别的角度帮我看看这些材料");
+  }
+
+  if (snapshot.perspectives.length === 0) {
+    return (
+      <div className="card perspective-empty">
+        <p>还没有视角。从一个能区分材料的角度开始。</p>
+        <p>
+          <button onClick={addPerspective}>＋ 自定义视角</button>
+        </p>
+        <p>
+          <button onClick={suggestWithAI}>让 AI 建议视角</button>
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div>
+    <div className="perspective-grid">
       {snapshot.perspectives.map((p) => (
-        <button
+        <PerspectiveCard
           key={p.id}
-          className="choice"
-          aria-pressed={p.id === active ? "true" : "false"}
-          onClick={() => select(p.id)}
-        >
-          {p.name}
-          {p.reason ? <span>{p.reason}</span> : null}
-        </button>
+          perspective={p}
+          active={p.id === active}
+          workspaceId={workspaceId!}
+          revision={revision}
+          onSelect={select}
+        />
       ))}
-      <button onClick={addPerspective}>＋ 自定义视角</button>
+      <button className="perspective-grid__add" onClick={addPerspective}>
+        ＋ 自定义视角
+      </button>
     </div>
   );
 }
