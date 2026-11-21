@@ -1,4 +1,11 @@
+import asyncio
+
+import pytest
+from fastapi import HTTPException
+
 from ari.agents.recommend_chart import RecommendChartOutput, render_recommend_prompt
+from ari.api.schemas import RecommendChartRequest
+from ari.api.workspaces import recommend_chart
 from ari.domain.recommend_chart import (
     RecommendChartError,
     build_recommend_context,
@@ -68,3 +75,76 @@ def test_render_recommend_prompt_contains_candidates_and_purpose():
 def test_recommend_chart_output_schema_accepts_flow():
     out = RecommendChartOutput(chart="flow", reason="阶段推进")
     assert out.chart == "flow"
+
+
+class _FakeRunner:
+    async def run(self, prompt, output_model, **kwargs):
+        return RecommendChartOutput(chart="matrix", reason="两维交叉")
+
+
+class _BoomRunner:
+    async def run(self, prompt, output_model, **kwargs):
+        raise RuntimeError("boom")
+
+
+def _call(wid, conn, rev, pid="v-adoption"):
+    return asyncio.run(
+        recommend_chart(
+            wid,
+            RecommendChartRequest(base_revision=rev, perspective_id=pid),
+            conn=conn,
+        )
+    )
+
+
+def test_recommend_chart_endpoint_ok(tutorial, conn, monkeypatch):
+    wid, rev, _ = tutorial
+    monkeypatch.setattr("ari.api.workspaces.create_runner", lambda *a, **k: _FakeRunner())
+    res = _call(wid, conn, rev)
+    assert res.chart == "matrix"
+    assert res.reason
+    assert res.revision == rev
+    assert res.existing_charts == []
+
+
+def test_recommend_chart_endpoint_stale_409(tutorial, conn, monkeypatch):
+    from ari.domain.operations import SetPurpose
+    from ari.domain.workspace import apply_patch
+
+    wid, rev, _ = tutorial
+    monkeypatch.setattr("ari.api.workspaces.create_runner", lambda *a, **k: _FakeRunner())
+    apply_patch(conn, wid, "req-stale-rc", rev, [SetPurpose(text="x")])
+    with pytest.raises(HTTPException) as exc:
+        _call(wid, conn, rev)
+    assert exc.value.status_code == 409
+
+
+def test_recommend_chart_endpoint_no_llm_503(tutorial, conn, monkeypatch):
+    wid, rev, _ = tutorial
+    monkeypatch.setattr("ari.api.workspaces.create_runner", lambda *a, **k: None)
+    with pytest.raises(HTTPException) as exc:
+        _call(wid, conn, rev)
+    assert exc.value.status_code == 503
+
+
+def test_recommend_chart_endpoint_unknown_workspace_404(conn):
+    with pytest.raises(HTTPException) as exc:
+        _call("nope", conn, 1)
+    assert exc.value.status_code == 404
+
+
+def test_recommend_chart_endpoint_bad_perspective_422(tutorial, conn, monkeypatch):
+    wid, rev, _ = tutorial
+    monkeypatch.setattr("ari.api.workspaces.create_runner", lambda *a, **k: _FakeRunner())
+    with pytest.raises(HTTPException) as exc:
+        _call(wid, conn, rev, pid="missing")
+    assert exc.value.status_code == 422
+    assert "recovery" in exc.value.detail
+
+
+def test_recommend_chart_endpoint_runner_error_502(tutorial, conn, monkeypatch):
+    wid, rev, _ = tutorial
+    monkeypatch.setattr("ari.api.workspaces.create_runner", lambda *a, **k: _BoomRunner())
+    with pytest.raises(HTTPException) as exc:
+        _call(wid, conn, rev)
+    assert exc.value.status_code == 502

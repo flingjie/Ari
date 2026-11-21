@@ -58,6 +58,7 @@
 | GET `/{id}/messages` | `?limit=30&before=<cursor>` | `{messages[], next_before?}`（页面内正序） |
 | POST `/{id}/proposals/{pid}/resolve` | `{request_id, base_revision, action, operations?}` | `{revision, snapshot, status}` |
 | GET `/{id}/export` | `?revision&perspective_id&format=outline\|table` | `{revision, format, content}` |
+| POST `/{id}/recommend-chart` | `{base_revision, perspective_id}` | `{revision, chart, reason, existing_charts[]}` |
 
 `action` ∈ accept / edit / ignore。`edit` 需携带 `operations`（改写后的变更集）。
 

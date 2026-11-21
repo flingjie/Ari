@@ -7,6 +7,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import TypeAdapter
 
+from ..agents.recommend_chart import RecommendChartOutput, render_recommend_prompt
 from ..agents.stage import (
     OUTPUT_MODELS,
     build_context,
@@ -27,6 +28,11 @@ from ..domain.proposals import (
     list_recent_messages,
     resolve_proposal,
     store_message_and_proposal,
+)
+from ..domain.recommend_chart import (
+    RecommendChartError,
+    build_recommend_context,
+    existing_charts,
 )
 from ..domain.visualizations import VisualizationViewError, build_visualization_view
 from ..domain.workspace import (
@@ -53,6 +59,8 @@ from .schemas import (
     PatchRequest,
     PatchResponse,
     ProposalSummary,
+    RecommendChartRequest,
+    RecommendChartResponse,
     ResolveRequest,
     ResolveResponse,
     UndoRequest,
@@ -366,3 +374,45 @@ def visualization(
             detail={"message": str(exc), "recovery": exc.recovery},
         ) from None
     return VisualizationResponse(revision=query.revision, view=view)
+
+
+@router.post("/{workspace_id}/recommend-chart", response_model=RecommendChartResponse)
+async def recommend_chart(
+    workspace_id: str, body: RecommendChartRequest, conn=Depends(get_conn)
+) -> RecommendChartResponse:
+    ws = get_workspace(conn, workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="工作区不存在")
+    if body.base_revision != ws["revision"]:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "版本已变，请刷新后重试", "current_revision": ws["revision"]},
+        )
+    snapshot = ws["snapshot"]
+    try:
+        ctx = build_recommend_context(snapshot, body.perspective_id)
+    except RecommendChartError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": str(exc), "recovery": exc.recovery},
+        ) from None
+
+    runner = create_runner(settings.llm, "recommend_chart")
+    if runner is None:
+        raise HTTPException(
+            status_code=503,
+            detail="AI 未配置（需 ari.yaml 的 llm.base_url/model 与 LLM_API_KEY）",
+        )
+    prompt = render_recommend_prompt(ctx)
+    try:
+        output = await runner.run(prompt, RecommendChartOutput)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"模型调用失败：{exc}") from None
+
+    assert isinstance(output, RecommendChartOutput)
+    return RecommendChartResponse(
+        revision=ws["revision"],
+        chart=output.chart,
+        reason=output.reason,
+        existing_charts=existing_charts(snapshot, body.perspective_id),
+    )

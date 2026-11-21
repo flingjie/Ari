@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from ..domain.grouping import GroupedView
 from ..domain.operations import Operation
+from ..domain.recommend_chart import RecommendChart
 from ..domain.visualizations import VisualizationView
 from ..models import WorkspaceSnapshot
 
@@ -128,3 +129,15 @@ class VisualizationQuery(BaseModel):
 class VisualizationResponse(BaseModel):
     revision: int
     view: VisualizationView
+
+
+class RecommendChartRequest(BaseModel):
+    base_revision: int
+    perspective_id: str
+
+
+class RecommendChartResponse(BaseModel):
+    revision: int
+    chart: RecommendChart
+    reason: str
+    existing_charts: list[RecommendChart]
