@@ -10,7 +10,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, ApiError, type MessageSummary, type ProposalSummary } from "../api/client";
+import {
+  api,
+  ApiError,
+  type MessageSummary,
+  type NudgeRuleId,
+  type NudgeTrigger,
+  type ProposalSummary,
+} from "../api/client";
+import { pushRecentAction } from "../lib/recentActions";
 import type { Stage } from "../lib/types";
 import { useWorkspace } from "./workspace";
 
@@ -44,6 +52,8 @@ interface ChatContextValue {
   retry: (messageId: string) => Promise<void>;
   resolve: (proposalId: string, action: "accept" | "ignore") => Promise<void>;
   regenerate: (messageId: string) => Promise<void>;
+  /** Task 6 stub；Task 7 替换为带 revision 丢弃逻辑的真实实现。返回是否真的发言。 */
+  sendNudge: (trigger: NudgeTrigger, ruleId: NudgeRuleId) => Promise<boolean>;
 }
 
 const Ctx = createContext<ChatContextValue | null>(null);
@@ -242,6 +252,7 @@ export function ChatProvider({
           action,
         );
         applyServerSnapshot(res.revision, res.snapshot);
+        if (action === "accept") pushRecentAction("采纳了提案");
         setMessages((m) =>
           m.map((x) =>
             x.proposalId === proposalId
@@ -311,6 +322,11 @@ export function ChatProvider({
     [messages, sending, workspaceId],
   );
 
+  const sendNudge = useCallback(
+    async (_trigger: NudgeTrigger, _ruleId: NudgeRuleId) => false,
+    [],
+  );
+
   const value = useMemo<ChatContextValue>(
     () => ({
       messages,
@@ -326,6 +342,7 @@ export function ChatProvider({
       retry,
       resolve,
       regenerate,
+      sendNudge,
     }),
     [
       messages,
@@ -338,6 +355,7 @@ export function ChatProvider({
       retry,
       resolve,
       regenerate,
+      sendNudge,
     ],
   );
 

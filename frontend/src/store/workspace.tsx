@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { api, ApiError } from "../api/client";
+import { pushRecentAction } from "../lib/recentActions";
 import type { Operation, Snapshot } from "../lib/types";
 
 export type LoadState = "idle" | "loading" | "ready" | "error";
@@ -104,6 +105,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           revisionRef.current = res.revision;
           lastReqRef.current = null;
           setSync({ status: "idle" });
+          pushRecentAction("编辑了工作区内容");
           return true;
         };
 
@@ -180,6 +182,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         revisionRef.current = res.revision;
         setSync({ status: "idle" });
         setRemoteRevision((n) => n + 1);
+        pushRecentAction("撤销了上一步");
         return true;
       } catch (e) {
         if (epoch !== loadEpochRef.current) return false;

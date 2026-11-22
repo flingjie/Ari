@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useProactiveTrigger } from "./lib/useProactiveTrigger";
 import { Link, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { STAGES, STAGE_NAMES, type Stage } from "./lib/types";
 import { STAGE_HINTS, STAGE_TITLES } from "./lib/stageMeta";
@@ -32,6 +33,11 @@ function ChatToggle() {
       对话
     </button>
   );
+}
+
+function ProactiveTrigger({ workspaceId, stage }: { workspaceId: string; stage: Stage }) {
+  useProactiveTrigger({ workspaceId, stage });
+  return null;
 }
 
 function WorkspaceShell() {
@@ -76,6 +82,7 @@ function WorkspaceShell() {
 
   return (
     <ChatProvider workspaceId={id} stage={stage}>
+      <ProactiveTrigger workspaceId={id} stage={stage} />
       <div className="workspace">
         <main className="workspace-main">
           <header>
