@@ -55,12 +55,21 @@
 | GET `/{id}` | — | `{id, revision, snapshot, proposals[]}` |
 | PATCH `/{id}` | `{request_id, base_revision, operations[]}` | `{revision, snapshot}` |
 | POST `/{id}/messages` | `{request_id, stage, question, base_revision, piece_id?}` | `{reply, proposal_id, revision, proposal?}` |
+| POST `/{id}/nudges` | `{request_id, stage, trigger, rule_id, base_revision, recent_actions[]}` | `{reply, proposal_id, revision, proposal?}` 或 `204` |
 | GET `/{id}/messages` | `?limit=30&before=<cursor>` | `{messages[], next_before?}`（页面内正序） |
 | POST `/{id}/proposals/{pid}/resolve` | `{request_id, base_revision, action, operations?}` | `{revision, snapshot, status}` |
 | GET `/{id}/export` | `?revision&perspective_id&format=outline\|table` | `{revision, format, content}` |
 | POST `/{id}/recommend-chart` | `{base_revision, perspective_id}` | `{revision, chart, reason, existing_charts[]}` |
 
 `action` ∈ accept / edit / ignore。`edit` 需携带 `operations`（改写后的变更集）。
+
+主动引导（`POST /{id}/nudges`）：
+
+- `trigger` ∈ `stage_entry` | `structure_issue` | `idle`；第一版 `idle` 恒 204。
+- `rule_id` ∈ `stage_entry` | `unassigned_pieces` | `no_pillars` | `purpose_empty`。
+- 后端复核条件；不成立 / 沉默 / 未配置 LLM / 并发冲突 → 204。
+- 主动消息 `question` 为空串，`trigger` 非空；历史列表原样返回。
+- 幂等：同一 `request_id` 回放首次结果。
 
 多轮上下文：发送时服务端读同工作区最近 6 轮已完成问答注入提示词；`piece_id` 引用须属于该工作区且存在于当前快照。
 
