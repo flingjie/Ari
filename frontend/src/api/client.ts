@@ -56,6 +56,14 @@ export interface MessageResult {
   proposal?: ProposalSummary | null;
 }
 
+export type NudgeTrigger = "stage_entry" | "structure_issue" | "idle";
+
+export type NudgeRuleId =
+  | "stage_entry"
+  | "unassigned_pieces"
+  | "no_pillars"
+  | "purpose_empty";
+
 export interface MessageSummary {
   id: string;
   stage: Stage;
@@ -65,6 +73,7 @@ export interface MessageSummary {
   piece_id: string | null;
   base_revision: number;
   created_at: string;
+  trigger?: string | null;
   proposal: ProposalSummary | null;
 }
 
@@ -216,6 +225,42 @@ export const api = {
         piece_id: pieceId ?? null,
       }),
     });
+  },
+
+  // 204 无响应体表示沉默；不能走 request()（它总会 res.json()）。
+  async sendNudge(
+    id: string,
+    requestId: string,
+    stage: Stage,
+    trigger: NudgeTrigger,
+    ruleId: NudgeRuleId,
+    baseRevision: number,
+    recentActions: string[],
+  ): Promise<MessageResult | null> {
+    const res = await fetch(`${BASE}/${id}/nudges`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        request_id: requestId,
+        stage,
+        trigger,
+        rule_id: ruleId,
+        base_revision: baseRevision,
+        recent_actions: recentActions,
+      }),
+    });
+    if (res.status === 204) return null;
+    if (!res.ok) {
+      let detail: unknown = res.statusText;
+      try {
+        const body = await res.json();
+        detail = body.detail ?? body;
+      } catch {
+        // 非 JSON 错误体，保留 statusText。
+      }
+      throw new ApiError(res.status, detail);
+    }
+    return (await res.json()) as MessageResult;
   },
 
   listMessages(
