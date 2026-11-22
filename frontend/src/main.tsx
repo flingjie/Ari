@@ -8,7 +8,7 @@ import "./index.css";
 // 注意：不使用 StrictMode——jsMind 是命令式第三方库，StrictMode 的
 // 双挂载会泄漏容器事件监听（jsMind 无 dispose 方法）。
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <BrowserRouter>
+  <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
     <WorkspaceProvider>
       <App />
     </WorkspaceProvider>

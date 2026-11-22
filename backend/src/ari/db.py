@@ -1,7 +1,10 @@
 """SQLite 连接与建表（幂等 DDL）。
 
-本地单用户 MVP：每次请求打开一个独立连接（FastAPI 同步端点运行在线程池），
-写入用 WAL + BEGIN IMMEDIATE 串行化。领域状态以 JSON 快照存 ``workspaces.snapshot``，
+本地单用户 MVP：每次请求打开一个独立连接。同步端点运行在线程池，异步端点
+（如 send_message）运行在事件循环线程，两者经 ``get_conn`` 得到的连接会在不同
+线程里创建和使用，因此 ``sqlite3.connect`` 关闭同线程校验（check_same_thread=False）。
+每个请求独占一个连接且顺序使用，无并发访问，关闭该校验是安全的。写入用
+WAL + BEGIN IMMEDIATE 串行化。领域状态以 JSON 快照存 ``workspaces.snapshot``，
 版本用 ``revision`` 整数乐观并发。
 """
 
@@ -69,7 +72,7 @@ CREATE TABLE IF NOT EXISTS resolve_receipts (
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(path), timeout=30.0)
+    conn = sqlite3.connect(str(path), timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.isolation_level = None  # autocommit；事务由调用方用 BEGIN IMMEDIATE 显式控制
     conn.execute("PRAGMA journal_mode=WAL")
