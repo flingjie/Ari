@@ -62,6 +62,15 @@ class MessageRequest(BaseModel):
     piece_id: str | None = None
 
 
+class NudgeRequest(BaseModel):
+    request_id: str
+    stage: Stage
+    trigger: Literal["stage_entry", "structure_issue", "idle"]
+    rule_id: Literal["stage_entry", "unassigned_pieces", "no_pillars", "purpose_empty"]
+    base_revision: int
+    recent_actions: list[str] = Field(default_factory=list)
+
+
 class MessageResponse(BaseModel):
     reply: str
     proposal_id: str | None

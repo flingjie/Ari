@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import TypeAdapter
 
+from ..agents.nudge import nudge_output_model, render_nudge_prompt
 from ..agents.recommend_chart import RecommendChartOutput, render_recommend_prompt
 from ..agents.stage import (
     OUTPUT_MODELS,
@@ -17,6 +18,8 @@ from ..agents.stage import (
 )
 from ..domain.export import ExportError, render
 from ..domain.grouping import GroupedViewError, build_grouped_view
+from ..domain import nudge_runtime
+from ..domain.nudge import content_fingerprint, observed_values, rule_holds
 from ..domain.operations import Operation, OperationError
 from ..domain.proposals import (
     ProposalResolvedError,
@@ -56,6 +59,7 @@ from .schemas import (
     MessageRequest,
     MessageResponse,
     MessageSummary,
+    NudgeRequest,
     PatchRequest,
     PatchResponse,
     ProposalSummary,
@@ -270,6 +274,90 @@ async def send_message(
         revision=ws["revision"],
         proposal=_message_proposal(conn, proposal_id),
     )
+
+
+@router.post(
+    "/{workspace_id}/nudges",
+    response_model=MessageResponse,
+    responses={204: {"description": "沉默或不触发（无响应体）"}},
+)
+async def send_nudge(workspace_id: str, body: NudgeRequest, conn=Depends(get_conn)):
+    """主动引导：后端复核候选信号，交由模型决定是否开口；沉默一律 204。"""
+    existing = get_message_by_request_id(conn, body.request_id)
+    if existing is not None:
+        if existing["workspace_id"] != workspace_id:
+            raise HTTPException(status_code=409, detail="request_id 属于另一个工作区")
+        return MessageResponse(
+            reply=existing["reply"],
+            proposal_id=existing["proposal_id"],
+            revision=existing["base_revision"],
+            proposal=_message_proposal(conn, existing["proposal_id"]),
+        )
+
+    if body.trigger == "idle":
+        return Response(status_code=204)  # 第一版 idle 不接 LLM
+
+    if not nudge_runtime.try_begin(workspace_id):
+        return Response(status_code=204)
+    try:
+        ws = get_workspace(conn, workspace_id)
+        if ws is None:
+            raise HTTPException(status_code=404, detail="工作区不存在")
+        if body.base_revision != ws["revision"]:
+            return Response(status_code=204)  # 过时请求：沉默，不 409 打扰
+
+        snapshot = ws["snapshot"]
+        if not rule_holds(snapshot, body.rule_id, body.stage):
+            return Response(status_code=204)
+
+        fp = content_fingerprint(snapshot, body.rule_id)
+        if nudge_runtime.silence_hit(workspace_id, body.rule_id, body.stage, fp):
+            return Response(status_code=204)
+
+        runner = create_runner(settings.llm, body.stage)
+        if runner is None:
+            return Response(status_code=204)
+
+        history = list_recent_messages(conn, workspace_id, limit=6)
+        prompt = render_nudge_prompt(
+            body.stage,
+            build_context(snapshot, body.stage, history),
+            trigger=body.trigger,
+            rule_id=body.rule_id,
+            observed=observed_values(snapshot, body.rule_id),
+            recent_actions=body.recent_actions[:8],
+        )
+        try:
+            output = await runner.run(prompt, nudge_output_model(body.stage))
+            if not getattr(output, "speak", False):
+                nudge_runtime.record_silence(workspace_id, body.rule_id, body.stage, fp)
+                return Response(status_code=204)
+            reply, ops = materialize(body.stage, output, snapshot)
+            validate_operations(body.stage, ops, snapshot)
+        except Exception:
+            return Response(status_code=204)  # 主动失败静默
+
+        refs = {"message": body.request_id, "piece_ids": _collect_piece_refs(ops)}
+        proposal_id = store_message_and_proposal(
+            conn,
+            workspace_id,
+            body.stage,
+            body.request_id,
+            "",
+            body.base_revision,
+            reply,
+            ops,
+            refs,
+            trigger=body.trigger,
+        )
+        return MessageResponse(
+            reply=reply,
+            proposal_id=proposal_id,
+            revision=ws["revision"],
+            proposal=_message_proposal(conn, proposal_id),
+        )
+    finally:
+        nudge_runtime.end(workspace_id)
 
 
 @router.post("/{workspace_id}/proposals/{proposal_id}/resolve", response_model=ResolveResponse)
