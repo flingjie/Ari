@@ -1199,3 +1199,36 @@ a:focus-visible {
 .gap-check-table tr[data-empty="true"] td:last-child {
   color: #a33;
 }
+
+/* 主动提示：标识、固定引导、idle 轻入口 */
+.nudge-badge {
+  align-self: flex-start;
+  font-size: 12px;
+  color: #6b7280;
+  background: #f3f4f6;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.fixed-guide {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #4b5563;
+  background: #f9fafb;
+  border-left: 3px solid #d1d5db;
+  border-radius: 4px;
+}
+.idle-hint {
+  margin: 0 12px 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  text-align: left;
+  color: #374151;
+  background: #f3f4f6;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.idle-hint:hover {
+  background: #e5e7eb;
+}

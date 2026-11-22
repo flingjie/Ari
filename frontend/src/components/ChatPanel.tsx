@@ -5,7 +5,16 @@ import { STAGE_NAMES, type Snapshot, type Stage } from "../lib/types";
 import { describeChangeSet } from "../lib/describe";
 import { useChat } from "../store/chat";
 import { useWorkspace } from "../store/workspace";
+import { stageNeedsFixedEntryGuide } from "../lib/nudgeSignals";
 import { PieceInspector } from "./PieceInspector";
+
+const FIXED_GUIDE: Record<Stage, string> = {
+  purpose: "先用一句话写下这次思考要解决什么。",
+  piece: "从材料里摘几条原话放进来。",
+  perspective: "还没有目的和材料时，先回到前面两步。",
+  pillar: "先选定一个视角，再来建支柱。",
+  presentation: "前面结构就绪后再来表达。",
+};
 
 function pieceLabel(snapshot: Snapshot, id: string): string {
   const p = snapshot.pieces.find((x) => x.id === id);
@@ -27,9 +36,17 @@ export function ChatPanel({ stage }: { stage: Stage }) {
     retry,
     resolve,
     regenerate,
+    idleHintVisible,
+    acceptIdleHint,
+    focusNonce,
   } = useChat();
   const { snapshot } = useWorkspace();
   const listRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (focusNonce > 0) textareaRef.current?.focus();
+  }, [focusNonce]);
 
   useEffect(() => {
     const el = listRef.current;
@@ -64,20 +81,28 @@ export function ChatPanel({ stage }: { stage: Stage }) {
       ) : null}
 
       <div className="chat-messages" ref={listRef}>
+        {snapshot && stageNeedsFixedEntryGuide(snapshot, stage) ? (
+          <p className="fixed-guide">{FIXED_GUIDE[stage]}</p>
+        ) : null}
+
         {messages.length === 0 && !sending ? (
           <p className="chat-empty">在当前阶段向阿理提问，或附上一个片段。</p>
         ) : null}
 
         {messages.map((m) => (
           <div key={m.id} className="chat-turn">
-            <div className="bubble bubble-user">
-              {m.pieceId && snapshot ? (
-                <span className="bubble-ref">
-                  引用「{pieceLabel(snapshot, m.pieceId)}」
-                </span>
-              ) : null}
-              {m.question}
-            </div>
+            {m.trigger || !m.question ? (
+              <span className="nudge-badge">主动建议</span>
+            ) : (
+              <div className="bubble bubble-user">
+                {m.pieceId && snapshot ? (
+                  <span className="bubble-ref">
+                    引用「{pieceLabel(snapshot, m.pieceId)}」
+                  </span>
+                ) : null}
+                {m.question}
+              </div>
+            )}
 
             {m.error ? (
               <div className="bubble bubble-error">
@@ -150,6 +175,12 @@ export function ChatPanel({ stage }: { stage: Stage }) {
         {error ? <p className="sync-status error">{error}</p> : null}
       </div>
 
+      {idleHintVisible ? (
+        <button type="button" className="idle-hint" onClick={acceptIdleHint}>
+          需要一起梳理下一步吗？
+        </button>
+      ) : null}
+
       <footer className="chat-composer">
         {selectedPieceId && snapshot ? (
           <div className="piece-ref">
@@ -164,6 +195,7 @@ export function ChatPanel({ stage }: { stage: Stage }) {
           </div>
         ) : null}
         <textarea
+          ref={textareaRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKeyDown}

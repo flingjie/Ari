@@ -38,10 +38,12 @@ export function useProactiveTrigger({
 
     const entryKey = `${workspaceId}:${stage}`;
     const firstEvalForStage = lastEntryKey.current !== entryKey;
-    lastEntryKey.current = entryKey;
 
     const signal = detectSignals(snapshot, stage);
-    if (!signal) return;
+    if (!signal) {
+      lastEntryKey.current = entryKey;
+      return;
+    }
     if (signal.trigger === "stage_entry" && !firstEvalForStage) return;
 
     const now = Date.now();
@@ -50,6 +52,8 @@ export function useProactiveTrigger({
     const last = lastByRule.current.get(ruleKey);
     if (last !== undefined && now - last < RULE_COOLDOWN_MS) return;
 
+    // 冷却通过后才标记已见，被冷却挡住的首次评估之后仍可重试。
+    lastEntryKey.current = entryKey;
     // 尝试即记冷却，沉默（204）也不立刻重试。
     lastByRule.current.set(ruleKey, now);
     inFlight.current = true;

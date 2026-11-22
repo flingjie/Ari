@@ -18,7 +18,8 @@ import {
   type NudgeTrigger,
   type ProposalSummary,
 } from "../api/client";
-import { pushRecentAction } from "../lib/recentActions";
+import { getRecentActions, pushRecentAction } from "../lib/recentActions";
+import { useIdleHint } from "../lib/useIdleHint";
 import type { Stage } from "../lib/types";
 import { useWorkspace } from "./workspace";
 
@@ -34,6 +35,7 @@ export interface ChatMessage {
   proposalStatus: ProposalStatus;
   proposal: ProposalSummary | null;
   pieceId: string | null;
+  trigger: string | null;
   createdAt: string;
   error?: string;
 }
@@ -52,8 +54,14 @@ interface ChatContextValue {
   retry: (messageId: string) => Promise<void>;
   resolve: (proposalId: string, action: "accept" | "ignore") => Promise<void>;
   regenerate: (messageId: string) => Promise<void>;
-  /** Task 6 stub；Task 7 替换为带 revision 丢弃逻辑的真实实现。返回是否真的发言。 */
+  /** 返回 true 表示实际展示了一条主动消息。revision 过期则丢弃。 */
   sendNudge: (trigger: NudgeTrigger, ruleId: NudgeRuleId) => Promise<boolean>;
+  idleHintVisible: boolean;
+  dismissIdleHint: () => void;
+  /** 点击 idle 轻入口：关闭提示、打开面板、预填草稿（不自动发送）。 */
+  acceptIdleHint: () => void;
+  /** 供 ChatPanel 在 acceptIdleHint 后聚焦输入框。 */
+  focusNonce: number;
 }
 
 const Ctx = createContext<ChatContextValue | null>(null);
@@ -75,6 +83,7 @@ function toChatMessage(m: MessageSummary): ChatMessage {
     proposalStatus: m.proposal ? (m.proposal.status as ProposalStatus) : "none",
     proposal: m.proposal,
     pieceId: m.piece_id,
+    trigger: m.trigger ?? null,
     createdAt: m.created_at,
   };
 }
@@ -96,7 +105,7 @@ export function ChatProvider({
   stage: Stage;
   children: ReactNode;
 }) {
-  const { revision, applyServerSnapshot } = useWorkspace();
+  const { revision, snapshot, applyServerSnapshot } = useWorkspace();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [draft, setDraft] = useState("");
@@ -149,6 +158,7 @@ export function ChatProvider({
         proposalStatus: "none",
         proposal: null,
         pieceId,
+        trigger: null,
         createdAt: new Date().toISOString(),
       };
       setMessages((m) => [...m, temp]);
@@ -323,9 +333,60 @@ export function ChatProvider({
   );
 
   const sendNudge = useCallback(
-    async (_trigger: NudgeTrigger, _ruleId: NudgeRuleId) => false,
-    [],
+    async (trigger: NudgeTrigger, ruleId: NudgeRuleId): Promise<boolean> => {
+      const revAtSend = revisionRef.current;
+      const requestId = crypto.randomUUID();
+      const stg = stage;
+      setSending(true);
+      try {
+        const res = await api.sendNudge(
+          workspaceId,
+          requestId,
+          stg,
+          trigger,
+          ruleId,
+          revAtSend,
+          getRecentActions(),
+        );
+        if (res === null) return false;
+        // 生成期间内容已变化：消息可能已落库，下次刷新可见，这里不插入。
+        if (revisionRef.current !== revAtSend) return false;
+        const msg: ChatMessage = {
+          id: requestId,
+          requestId,
+          stage: stg,
+          question: "",
+          reply: res.reply,
+          proposalId: res.proposal_id,
+          proposalStatus: res.proposal
+            ? (res.proposal.status as ProposalStatus)
+            : "none",
+          proposal: res.proposal ?? null,
+          pieceId: null,
+          trigger,
+          createdAt: new Date().toISOString(),
+        };
+        setMessages((m) => [...m, msg]);
+        return true;
+      } catch (e) {
+        console.warn("sendNudge failed", e);
+        return false;
+      } finally {
+        setSending(false);
+      }
+    },
+    [stage, workspaceId],
   );
+
+  const idle = useIdleHint([snapshot, draft, stage, messages.length], !sending);
+  const { dismiss: dismissIdleHint } = idle;
+  const [focusNonce, setFocusNonce] = useState(0);
+  const acceptIdleHint = useCallback(() => {
+    dismissIdleHint();
+    setPanelOpen(true);
+    setDraft("我想梳理一下下一步");
+    setFocusNonce((n) => n + 1);
+  }, [dismissIdleHint]);
 
   const value = useMemo<ChatContextValue>(
     () => ({
@@ -343,6 +404,10 @@ export function ChatProvider({
       resolve,
       regenerate,
       sendNudge,
+      idleHintVisible: idle.visible,
+      dismissIdleHint,
+      acceptIdleHint,
+      focusNonce,
     }),
     [
       messages,
@@ -356,6 +421,10 @@ export function ChatProvider({
       resolve,
       regenerate,
       sendNudge,
+      idle.visible,
+      dismissIdleHint,
+      acceptIdleHint,
+      focusNonce,
     ],
   );
 
