@@ -22,7 +22,7 @@ export function useProactiveTrigger({
 }): void {
   const { snapshot, revision } = useWorkspace();
   const chat = useChat();
-  const { sendNudge, sending, messages } = chat;
+  const { sendNudge, sending, nudgeSending, messages } = chat;
 
   const lastByRule = useRef<Map<string, number>>(new Map());
   const lastSpokeAt = useRef(0);
@@ -34,7 +34,7 @@ export function useProactiveTrigger({
   );
 
   useEffect(() => {
-    if (!snapshot || sending || hasPendingProposal || inFlight.current) return;
+    if (!snapshot || sending || nudgeSending || hasPendingProposal || inFlight.current) return;
 
     const entryKey = `${workspaceId}:${stage}`;
     const firstEvalForStage = lastEntryKey.current !== entryKey;
@@ -67,5 +67,5 @@ export function useProactiveTrigger({
       .finally(() => {
         inFlight.current = false;
       });
-  }, [workspaceId, stage, revision, snapshot, sending, hasPendingProposal, sendNudge]);
+  }, [workspaceId, stage, revision, snapshot, sending, nudgeSending, hasPendingProposal, sendNudge]);
 }

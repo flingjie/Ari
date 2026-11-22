@@ -103,7 +103,11 @@ def build_history_text(history: list[dict] | None) -> str:
     lines: list[str] = []
     for item in history:
         stage_label = STAGE_LABELS.get(item.get("stage", ""), item.get("stage", ""))
-        lines.append(f"- 问（{stage_label}）：{item.get('question', '')}")
+        question = item.get("question", "")
+        if question:
+            lines.append(f"- 问（{stage_label}）：{question}")
+        else:
+            lines.append(f"- 主动建议（{stage_label}）：")
         lines.append(f"  答：{item.get('reply', '')}")
     return "\n".join(lines)
 

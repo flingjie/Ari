@@ -20,6 +20,7 @@ import {
 } from "../api/client";
 import { getRecentActions, pushRecentAction } from "../lib/recentActions";
 import { useIdleHint } from "../lib/useIdleHint";
+import { stageIsEmpty, unassignedCount } from "../lib/nudgeSignals";
 import type { Stage } from "../lib/types";
 import { useWorkspace } from "./workspace";
 
@@ -43,6 +44,8 @@ export interface ChatMessage {
 interface ChatContextValue {
   messages: ChatMessage[];
   sending: boolean;
+  /** 主动提示生成中；不锁输入框，仅用于主动提示互斥。 */
+  nudgeSending: boolean;
   draft: string;
   setDraft: (v: string) => void;
   error: string;
@@ -108,6 +111,7 @@ export function ChatProvider({
   const { revision, snapshot, applyServerSnapshot } = useWorkspace();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
+  const [nudgeSending, setNudgeSending] = useState(false);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
@@ -337,7 +341,7 @@ export function ChatProvider({
       const revAtSend = revisionRef.current;
       const requestId = crypto.randomUUID();
       const stg = stage;
-      setSending(true);
+      setNudgeSending(true);
       try {
         const res = await api.sendNudge(
           workspaceId,
@@ -372,13 +376,21 @@ export function ChatProvider({
         console.warn("sendNudge failed", e);
         return false;
       } finally {
-        setSending(false);
+        setNudgeSending(false);
       }
     },
     [stage, workspaceId],
   );
 
-  const idle = useIdleHint([snapshot, draft, stage, messages.length], !sending);
+  const stageIncomplete =
+    !!snapshot &&
+    (stageIsEmpty(snapshot, stage) ||
+      (stage === "pillar" && unassignedCount(snapshot) >= 1) ||
+      ((stage === "purpose" || stage === "piece") && !snapshot.purpose.trim()));
+  const idle = useIdleHint(
+    [snapshot, draft, stage, messages.length],
+    !sending && stageIncomplete,
+  );
   const { dismiss: dismissIdleHint } = idle;
   const [focusNonce, setFocusNonce] = useState(0);
   const acceptIdleHint = useCallback(() => {
@@ -392,6 +404,7 @@ export function ChatProvider({
     () => ({
       messages,
       sending,
+      nudgeSending,
       draft,
       setDraft,
       error,
@@ -412,6 +425,7 @@ export function ChatProvider({
     [
       messages,
       sending,
+      nudgeSending,
       draft,
       error,
       selectedPieceId,
