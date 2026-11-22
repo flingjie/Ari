@@ -1,3 +1,5 @@
+from ari.agents.nudge import nudge_output_model, render_nudge_prompt
+from ari.agents.stage import PurposeOutput
 from ari.db import connect, init_db
 from ari.domain.nudge import (
     content_fingerprint,
@@ -105,3 +107,33 @@ def test_store_message_with_trigger(conn, tutorial):
     row = get_message_by_request_id(conn, "nudge-1")
     assert row["question"] == ""
     assert row["trigger"] == "stage_entry"
+
+
+def test_nudge_output_model_has_speak_and_inherits():
+    model = nudge_output_model("purpose")
+    inst = model(speak=False, reply="", rewritten_purpose="")
+    assert inst.speak is False
+    assert isinstance(inst, PurposeOutput)
+
+
+def test_render_nudge_prompt_includes_constraints_and_signal():
+    text = render_nudge_prompt(
+        "perspective",
+        {
+            "purpose": "P",
+            "pieces_json": "[]",
+            "perspectives_json": "[]",
+            "active_perspective": "",
+            "pillars_json": "[]",
+            "assignments_json": "[]",
+            "history": "",
+        },
+        trigger="stage_entry",
+        rule_id="stage_entry",
+        observed={"pieces": 3},
+        recent_actions=["新增片段×3"],
+    )
+    assert "speak" in text
+    assert "一次最多提出一个主要问题" in text
+    assert "stage_entry" in text or "进入" in text
+    assert "新增片段×3" in text
