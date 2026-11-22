@@ -259,7 +259,7 @@ export type Operation =
       source?: string;
       kind?: PieceKind;
     }
-  | { type: "update_piece"; piece_id: string; text: string }
+  | { type: "update_piece"; piece_id: string; text: string; source?: string }
   | { type: "remove_piece"; piece_id: string }
   | {
       type: "move_piece";

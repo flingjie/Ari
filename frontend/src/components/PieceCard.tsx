@@ -6,6 +6,8 @@ export function PieceCard({
   pillars,
   pending,
   failed,
+  selected,
+  onSelect,
   onMove,
   onRetry,
 }: {
@@ -14,6 +16,8 @@ export function PieceCard({
   pillars: GroupedPillar[];
   pending: boolean;
   failed: boolean;
+  selected?: boolean;
+  onSelect?: (pieceId: string) => void;
   onMove: (pieceId: string, pillarId: string | null) => void;
   onRetry: (pieceId: string) => void;
 }) {
@@ -21,7 +25,9 @@ export function PieceCard({
     <div
       className="piece-card"
       data-pending={pending}
+      data-selected={selected ? "true" : "false"}
       draggable={!pending}
+      onClick={() => onSelect?.(piece.id)}
       onDragStart={(e) => {
         e.dataTransfer.setData("text/plain", piece.id);
         e.dataTransfer.effectAllowed = "move";
@@ -32,7 +38,11 @@ export function PieceCard({
         aria-label={`移动片段 ${piece.text}`}
         value={pillarId ?? ""}
         disabled={pending}
-        onChange={(e) => onMove(piece.id, e.target.value || null)}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => {
+          e.stopPropagation();
+          onMove(piece.id, e.target.value || null);
+        }}
       >
         <option value="">待归类</option>
         {pillars.map((p) => (
@@ -45,7 +55,13 @@ export function PieceCard({
       {failed ? (
         <span className="piece-failed">
           保存失败
-          <button type="button" onClick={() => onRetry(piece.id)}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRetry(piece.id);
+            }}
+          >
             重试
           </button>
         </span>

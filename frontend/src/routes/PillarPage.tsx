@@ -12,14 +12,18 @@ import {
 } from "../lib/types";
 import { PillarBoard, type CardOp } from "../components/PillarBoard";
 import { PillarChartPanel } from "../components/PillarChartPanel";
+import { GapCheck } from "../components/GapCheck";
+import { useChat } from "../store/chat";
 
 export default function PillarPage() {
   const { snapshot, mutate, load, workspaceId, revision } = useWorkspace();
+  const { selectedPieceId, setSelectedPieceId, setPanelOpen } = useChat();
   const [pending, setPending] = useState<Record<string, CardOp>>({});
   const [failed, setFailed] = useState<Record<string, CardOp>>({});
   const activeRef = useRef<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [focusPillarId, setFocusPillarId] = useState<string | null>(null);
+  const [showGap, setShowGap] = useState(false);
 
   const activeId = snapshot?.active_perspective_id ?? null;
 
@@ -29,6 +33,10 @@ export default function PillarPage() {
     setFailed({});
     setFocusPillarId(null);
   }, [activeId]);
+
+  useEffect(() => {
+    return () => setSelectedPieceId(null);
+  }, [setSelectedPieceId]);
 
   function clearEditorParam() {
     if (!searchParams.has("editor")) return;
@@ -159,8 +167,28 @@ export default function PillarPage() {
     );
   }
 
+  function selectPiece(pieceId: string) {
+    setSelectedPieceId(pieceId);
+    setPanelOpen(true);
+  }
+
   return (
     <div>
+      <div className="actions">
+        <button type="button" onClick={addPillar}>
+          ＋ 新支柱
+        </button>
+        <button
+          type="button"
+          aria-pressed={showGap}
+          onClick={() => setShowGap((v) => !v)}
+        >
+          检查缺口
+        </button>
+      </div>
+
+      {showGap ? <GapCheck view={view} snapshot={snapshot} /> : null}
+
       <PillarBoard
         key={currentActiveId}
         view={view}
@@ -171,8 +199,9 @@ export default function PillarPage() {
         failed={failed}
         focusPillarId={focusPillarId}
         onFocusPillarConsumed={() => setFocusPillarId(null)}
+        selectedPieceId={selectedPieceId}
+        onSelectPiece={selectPiece}
       />
-      <button onClick={addPillar}>＋ 新支柱</button>
 
       <PillarChartPanel
         key={currentActiveId}

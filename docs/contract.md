@@ -34,7 +34,7 @@
 |---|---|---|
 | set_purpose | text | 目的 |
 | add_piece | id, parent_id, text, order?, source?, kind? | 新增片段 |
-| update_piece | piece_id, text | 改写片段/主题 |
+| update_piece | piece_id, text, source? | 改写片段/主题；source 缺省不改，传字符串（含空）则写入 |
 | remove_piece | piece_id | 删子树 + 各视角归属；禁删根 |
 | move_piece | piece_id, parent_id, before_piece_id?, side? | 重挂父节点 + 同级排序；before 为 null 追加末尾；禁根/自挂/环/锚点非法；side 仅主题直接子节点 |
 | add_perspective | id, name, reason? | 新增视角 |

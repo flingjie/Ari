@@ -58,6 +58,7 @@ class UpdatePiece(BaseModel):
     type: Literal["update_piece"] = "update_piece"
     piece_id: str
     text: str
+    source: str | None = None  # None = 不改来源；传字符串（含空）则写入
 
 
 class RemovePiece(BaseModel):
@@ -347,6 +348,8 @@ def apply(snapshot: WorkspaceSnapshot, op: Operation) -> None:
         piece = snapshot.piece(op.piece_id)
         assert piece is not None
         piece.text = op.text
+        if op.source is not None:
+            piece.source = op.source
 
     elif isinstance(op, RemovePiece):
         if op.piece_id == snapshot.root_id:

@@ -48,6 +48,8 @@ export function PillarBoard({
   failed,
   focusPillarId,
   onFocusPillarConsumed,
+  selectedPieceId,
+  onSelectPiece,
 }: {
   view: GroupedView;
   onMove: (pieceId: string, pillarId: string | null) => void;
@@ -57,6 +59,8 @@ export function PillarBoard({
   failed: Record<string, CardOp>;
   focusPillarId?: string | null;
   onFocusPillarConsumed?: () => void;
+  selectedPieceId?: string | null;
+  onSelectPiece?: (pieceId: string) => void;
 }) {
   const [overKey, setOverKey] = useState<string | null>(null);
 
@@ -119,6 +123,8 @@ export function PillarBoard({
                   pillars={view.pillars}
                   pending={!!pending[piece.id]}
                   failed={!!failed[piece.id]}
+                  selected={selectedPieceId === piece.id}
+                  onSelect={onSelectPiece}
                   onMove={onMove}
                   onRetry={onRetryCard}
                 />

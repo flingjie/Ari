@@ -39,6 +39,17 @@ def test_add_piece_and_update():
     assert s.piece("child").text == "改写"
 
 
+def test_update_piece_source_optional():
+    s = tutorial_snapshot()
+    apply(s, AddPiece(id="child", parent_id="p-star", text="子片段", source="旧"))
+    apply(s, UpdatePiece(piece_id="child", text="子片段"))
+    assert s.piece("child").source == "旧"
+    apply(s, UpdatePiece(piece_id="child", text="子片段", source="访谈"))
+    assert s.piece("child").source == "访谈"
+    apply(s, UpdatePiece(piece_id="child", text="子片段", source=""))
+    assert s.piece("child").source == ""
+
+
 def test_remove_piece_deletes_subtree_and_assignments():
     s = tutorial_snapshot()
     apply(s, AddPiece(id="g1", parent_id="p-star", text="孙"))

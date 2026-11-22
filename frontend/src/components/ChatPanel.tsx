@@ -5,6 +5,7 @@ import { STAGE_NAMES, type Snapshot, type Stage } from "../lib/types";
 import { describeChangeSet } from "../lib/describe";
 import { useChat } from "../store/chat";
 import { useWorkspace } from "../store/workspace";
+import { PieceInspector } from "./PieceInspector";
 
 function pieceLabel(snapshot: Snapshot, id: string): string {
   const p = snapshot.pieces.find((x) => x.id === id);
@@ -57,6 +58,10 @@ export function ChatPanel({ stage }: { stage: Stage }) {
           返回
         </button>
       </header>
+
+      {(stage === "piece" || stage === "pillar") && selectedPieceId ? (
+        <PieceInspector />
+      ) : null}
 
       <div className="chat-messages" ref={listRef}>
         {messages.length === 0 && !sending ? (
