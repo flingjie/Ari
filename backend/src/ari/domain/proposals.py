@@ -46,11 +46,13 @@ def create_message(
     reply: str,
     proposal_id: str | None,
     piece_id: str | None = None,
+    trigger: str | None = None,
 ) -> None:
     conn.execute(
         "INSERT INTO messages "
         "(id, workspace_id, stage, request_id, question, base_revision, status, "
-        "reply, proposal_id, piece_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "reply, proposal_id, piece_id, trigger, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             uuid.uuid4().hex,
             workspace_id,
@@ -62,6 +64,7 @@ def create_message(
             reply,
             proposal_id,
             piece_id,
+            trigger,
             _now(),
         ),
     )
@@ -173,6 +176,7 @@ def store_message_and_proposal(
     change_set: list[Operation],
     refs: dict,
     piece_id: str | None = None,
+    trigger: str | None = None,
 ) -> str | None:
     """在一个事务内写入消息 + 待处理提案，返回 proposal_id（无提案则为 None）。"""
     conn.execute("BEGIN IMMEDIATE")
@@ -192,6 +196,7 @@ def store_message_and_proposal(
             reply,
             proposal_id,
             piece_id,
+            trigger,
         )
         conn.commit()
     except Exception:

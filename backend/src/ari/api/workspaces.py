@@ -110,6 +110,7 @@ def _message_summary(conn, m: dict) -> MessageSummary:
         piece_id=m["piece_id"],
         base_revision=m["base_revision"],
         created_at=m["created_at"],
+        trigger=m["trigger"] if "trigger" in m.keys() else None,
         proposal=_message_proposal(conn, m["proposal_id"]),
     )
 

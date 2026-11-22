@@ -1,3 +1,4 @@
+from ari.db import connect, init_db
 from ari.domain.nudge import (
     content_fingerprint,
     content_piece_count,
@@ -7,6 +8,7 @@ from ari.domain.nudge import (
     stage_is_empty,
     unassigned_count,
 )
+from ari.domain.proposals import get_message_by_request_id, store_message_and_proposal
 from ari.domain.seed import tutorial_snapshot
 from ari.models import WorkspaceSnapshot
 
@@ -64,3 +66,42 @@ def test_observed_values_includes_counts():
     vals = observed_values(s, "unassigned_pieces")
     assert "unassigned" in vals
     assert "pieces" in vals
+
+
+def test_trigger_column_migration(tmp_path):
+    # 模拟旧库：无 trigger 列
+    path = tmp_path / "old.db"
+    c = connect(path)
+    c.executescript(
+        """
+        CREATE TABLE messages (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            request_id TEXT NOT NULL,
+            question TEXT NOT NULL,
+            base_revision INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            reply TEXT,
+            proposal_id TEXT,
+            piece_id TEXT,
+            created_at TEXT NOT NULL
+        );
+        """
+    )
+    c.commit()
+    init_db(c)
+    cols = {row["name"] for row in c.execute("PRAGMA table_info(messages)")}
+    assert "trigger" in cols
+    c.close()
+
+
+def test_store_message_with_trigger(conn, tutorial):
+    wid, rev, _ = tutorial
+    store_message_and_proposal(
+        conn, wid, "perspective", "nudge-1", "", rev, "试试这两个视角",
+        [], {"message": "nudge-1"}, trigger="stage_entry",
+    )
+    row = get_message_by_request_id(conn, "nudge-1")
+    assert row["question"] == ""
+    assert row["trigger"] == "stage_entry"

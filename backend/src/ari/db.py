@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS messages (
     reply TEXT,
     proposal_id TEXT,
     piece_id TEXT,
+    trigger TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -88,6 +89,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
     if "piece_id" not in cols:
         conn.execute("ALTER TABLE messages ADD COLUMN piece_id TEXT")
+    # 迁移：messages.trigger 标记主动消息来源（NULL = 用户提问）。
+    if "trigger" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN trigger TEXT")
     # 迁移：收据表补 prev_snapshot，供撤销上一步。
     for table in ("mutation_receipts", "resolve_receipts"):
         tcols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}

@@ -78,6 +78,7 @@ class MessageSummary(BaseModel):
     piece_id: str | None
     base_revision: int
     created_at: str
+    trigger: str | None = None
     proposal: ProposalSummary | None = None
 
 
