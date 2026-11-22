@@ -58,7 +58,7 @@
 - 输出模型 = 各阶段现有输出模型 + `speak: bool`：
   - `speak=false` → HTTP 204，不落库；
   - `speak=true` → 走现有 `materialize` + `validate_operations`，持久化消息 + 可选提案，响应结构与 `MessageResponse` 一致。
-- 消息表：`question` 允许为空（存空串或 NULL），新增 `trigger` 列标记来源（沿用现有 PRAGMA 迁移模式补列）。
+- 消息表：`question` 允许为 NULL（主动消息存 NULL），新增 `trigger` 列标记来源（沿用现有 PRAGMA 迁移模式补列）。
 - 阶段操作权限沿用 `STAGE_ALLOWED_OPS`，主动消息权限不大于用户提问。
 - LLM 未配置时端点直接返回 204。
 
