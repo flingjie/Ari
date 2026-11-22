@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import TypeAdapter
@@ -72,6 +73,8 @@ from .schemas import (
     VisualizationResponse,
     WorkspaceResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -335,6 +338,13 @@ async def send_nudge(workspace_id: str, body: NudgeRequest, conn=Depends(get_con
             reply, ops = materialize(body.stage, output, snapshot)
             validate_operations(body.stage, ops, snapshot)
         except Exception:
+            logger.exception(
+                "主动引导失败，静默返回 204 workspace=%s request=%s stage=%s rule=%s",
+                workspace_id,
+                body.request_id,
+                body.stage,
+                body.rule_id,
+            )
             return Response(status_code=204)  # 主动失败静默
 
         refs = {"message": body.request_id, "piece_ids": _collect_piece_refs(ops)}
